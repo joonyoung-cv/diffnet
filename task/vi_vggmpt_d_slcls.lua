@@ -14,6 +14,7 @@ function task:__init(  )
 end
 function task:setOption( arg )
 	self.opt = self:parseOption( arg )
+	self:setModelSpecificOption(  )
 	assert( self.opt.numGpu )
 	assert( self.opt.backend )
 	assert( self.opt.numDonkey )
@@ -36,6 +37,7 @@ function task:setOption( arg )
 	assert( self.opt.pathValLog )
 	paths.mkdir( self.opt.dirRoot )
 	paths.mkdir( self.opt.dirModel )
+	print( self.opt )
 end
 function task:getOption(  )
 	return self.opt
@@ -218,8 +220,7 @@ function task:parseOption( arg )
 	opt.pathTestLog = paths.concat( opt.dirModel, 'test_%d.log' )
 	-- Value processing.
 	opt.learnRate = opt.learnRate:split( ',' )
-	for k,v in pairs( opt.learnRate ) do opt.learnRate[ k ] = tonumber( v ) end	
-	print( opt )
+	for k,v in pairs( opt.learnRate ) do opt.learnRate[ k ] = tonumber( v ) end
 	return opt
 end
 function task:createDbTrain(  )
@@ -284,14 +285,15 @@ function task:estimateInputStat(  )
 	stdEstimate:div( numBatch )
 	return { mean = meanEstimate, std = stdEstimate }
 end
-function task:defineModel(  )
-	require 'loadcaffe'
-	-- Set model-specific global params.
+function task:setModelSpecificOption(  )
 	self.opt.cropSize = 224
 	self.opt.keepAspect = true
 	self.opt.normalizeStd = false
 	self.opt.caffeInput = true
 	self.opt.numOut = 1
+end
+function task:defineModel(  )
+	require 'loadcaffe'
 	-- Get params.
 	local numGpu = self.opt.numGpu
 	local batchSize = self.opt.batchSize
@@ -306,6 +308,11 @@ function task:defineModel(  )
 	local caffemodel = gpath.net.vggm_caffe_model
 	local seqLength2 = seqLength - diffScale
 	-- Check options.
+	assert( self.opt.cropSize == 224 )
+	assert( self.opt.keepAspect )
+	assert( not self.opt.normalizeStd )
+	assert( self.opt.caffeInput )
+	assert( self.opt.numOut == 1 )
 	assert( batchSize % numGpu == 0 )
 	assert( ( batchSize / numGpu ) % seqLength == 0 )
 	assert( ( self.opt.batchSize / seqLength / numGpu ) % 1 == 0 )

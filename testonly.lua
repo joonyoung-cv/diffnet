@@ -11,15 +11,13 @@ paths.dofile( taskFile )
 local task = TaskManager(  )
 task:setOption( arg )
 task:setDb(  )
+task:setInputStat(  )
 
 -- Get necessary data. 
 local opt = task:getOption(  )
 local model, se = task:getModel(  )
 local fun1, fun2, fun3 = task:getFunctionTest(  )
 local numQuery = task:getNumQuery(  )
-
--- Estimate input statistics.
-task:setInputStat(  )
 
 -- Hire donkeys working for data loading.
 -- This is modified from Soumith's data.lua.
