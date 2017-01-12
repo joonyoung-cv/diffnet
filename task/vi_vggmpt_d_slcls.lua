@@ -331,17 +331,36 @@ function task:defineModel(  )
 	model:cuda(  )
 	-- Set level information.
 	local diffInfo = {  }
-	diffInfo[ 0 ] = { id =  0, ch =   3, row = 224, col = 224 }
-	diffInfo[ 1 ] = { id =  2, ch =  96, row = 109, col = 109 }
-	diffInfo[ 2 ] = { id =  6, ch = 256, row =  26, col = 26 }
-	diffInfo[ 3 ] = { id = 10, ch = 512, row =  13, col = 13 }
-	diffInfo[ 4 ] = { id = 12, ch = 512, row =  13, col = 13 }
+	diffInfo[ 0 ] = { id =  1, ch =   3, row = 224, col = 224 }
+	diffInfo[ 1 ] = { id =  3, ch =  96, row = 109, col = 109 }
+	diffInfo[ 2 ] = { id =  7, ch = 256, row =  26, col = 26 }
+	diffInfo[ 3 ] = { id = 11, ch = 512, row =  13, col = 13 }
+	diffInfo[ 4 ] = { id = 13, ch = 512, row =  13, col = 13 }
 	local convInfo = {  }
 	convInfo[ 0 ] = { id =  1, ch =   3, row = 7, col = 7, num =  96, stride = 2, pad = 0 }
 	convInfo[ 1 ] = { id =  5, ch =  96, row = 5, col = 5, num = 256, stride = 2, pad = 1 }
 	convInfo[ 2 ] = { id =  9, ch = 256, row = 3, col = 3, num = 512, stride = 1, pad = 1 }
 	convInfo[ 3 ] = { id = 11, ch = 512, row = 3, col = 3, num = 512, stride = 1, pad = 1 }
 	convInfo[ 4 ] = { id = 13, ch = 512, row = 3, col = 3, num = 512, stride = 1, pad = 1 }
+	-- Repeat conv filters according to the sequance length after differentiation.
+	if seqLength2 > 1 then
+		local function copyParams( src, dst )
+			local srcw, srcg = src:parameters(  )
+			local dstw, dstg = dst:parameters(  )
+			dstw[ 1 ]:copy( srcw[ 1 ]:repeatTensor( 1, seqLength2, 1, 1 ):div( seqLength2 ) )
+			dstw[ 2 ]:copy( srcw[ 2 ] )
+			dstg[ 1 ]:copy( srcg[ 1 ]:repeatTensor( 1, seqLength2, 1, 1 ):div( seqLength2 ) )
+			dstg[ 2 ]:copy( srcg[ 2 ] )
+		end
+		convInfo = convInfo[ diffLevel ]
+		local conv = cudnn.SpatialConvolution(
+			convInfo.ch * seqLength2, convInfo.num, convInfo.row, convInfo.col,
+			convInfo.stride, convInfo.stride, convInfo.pad, convInfo.pad, 1 )
+		copyParams( model.modules[ 1 ].modules[ convInfo.id ], conv )
+		conv:cuda(  )
+		model.modules[ 1 ]:remove( convInfo.id )
+		model.modules[ 1 ]:insert( conv, convInfo.id )
+	end
 	-- Insert differentiator if needed.
 	local function defineDiff( numCh, numRow, numCol )
 		local diff = nn.Sequential(  )
@@ -362,25 +381,6 @@ function task:defineModel(  )
 	diffInfo = diffInfo[ diffLevel ]
 	local diff = defineDiff( diffInfo.ch, diffInfo.row, diffInfo.col )
 	model.modules[ 1 ]:insert( diff, diffInfo.id )
-	-- Repeat conv filters according to the sequance length after differentiation.
-	local function copyParams( src, dst )
-		local srcw, srcg = src:parameters(  )
-		local dstw, dstg = dst:parameters(  )
-		dstw[ 1 ]:copy( srcw[ 1 ]:repeatTensor( 1, seqLength2, 1, 1 ):div( seqLength2 ) )
-		dstw[ 2 ]:copy( srcw[ 2 ] )
-		dstg[ 1 ]:copy( srcg[ 1 ]:repeatTensor( 1, seqLength2, 1, 1 ):div( seqLength2 ) )
-		dstg[ 2 ]:copy( srcg[ 2 ] )
-	end
-	if seqLength2 > 1 then
-		convInfo = convInfo[ diffLevel ]
-		local conv = cudnn.SpatialConvolution(
-			convInfo.ch * seqLength2, convInfo.num, convInfo.row, convInfo.col,
-			convInfo.stride, convInfo.stride, convInfo.pad, convInfo.pad, 1 )
-		copyParams( model.modules[ 1 ].modules[ convInfo.id ], conv )
-		conv:cuda(  )
-		model.modules[ 1 ]:remove( convInfo.id )
-		model.modules[ 1 ]:insert( conv, convInfo.id )
-	end
 	-- Wrap up net with data parallel table if needed.
 	model = makeDataParallel( model, numGpu )
 	return model
