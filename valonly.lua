@@ -16,7 +16,7 @@ task:setInputStat(  )
 -- Get necessary data. 
 local opt = task:getOption(  )
 local model, se = task:getModel(  )
-local funval1, funval2 = task:getFunctionVal(  )
+local funval1, funval2, funval3 = task:getFunctionVal(  )
 local _, numbval = task:getNumBatch(  )
 
 -- Hire donkeys working for data loading.
@@ -49,7 +49,7 @@ val = paths.dofile( 'val.lua' )
 val.setOption( opt, numbval )
 val.setModel( model )
 val.setDonkey( donkeys )
-val.setFunction( funval1, funval2 )
+val.setFunction( funval1, funval2, funval3 )
 
 -- Do the job.
 val.val( 0 )

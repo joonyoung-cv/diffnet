@@ -87,13 +87,22 @@ function task:setInputStat(  )
 end
 function task:getFunctionTrain(  )
 	return
+		function( x ) self:changeModelTrain( x ) end,
 		function(  ) return self:getBatchTrain(  ) end,
 		function( x, y ) return self:evalBatch( x, y ) end
 end
 function task:getFunctionVal(  )
 	return
+		function( x ) self:changeModelVal( x ) end,
 		function( i ) return self:getBatchVal( i ) end,
 		function( x, y ) return self:evalBatch( x, y ) end
+end
+function task:getFunctionTest(  )
+	return
+		function( x ) self:changeModelTest( x ) end,
+		function( i ) return self:getQuery( i ) end,
+		function( x ) return self:aggregateAnswers( x ) end,
+		function( x, y ) return self:evaluate( x, y ) end
 end
 function task:getModel(  )
 	local numEpoch = self.opt.numEpoch
@@ -331,6 +340,15 @@ function task:groupParams( model )
 		weightDecay = self.opt.weightDecay 
 	}
 	return params, grads, optims
+end
+function task:changeModelTrain( model )
+	-- Nothing to change.
+end
+function task:changeModelVal( model )
+	-- Nothing to change.
+end
+function task:changeModelTest( model )
+	-- Nothing to change.
 end
 function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize

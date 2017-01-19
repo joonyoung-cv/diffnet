@@ -16,7 +16,8 @@ end
 function test.setDonkey( donkeys )
 	test.donkeys = donkeys
 end
-function test.setFunction( getQuery, aggregateAnswers, evaluate )
+function test.setFunction( changeModel, getQuery, aggregateAnswers, evaluate )
+	test.changeModel = changeModel
 	test.getQuery = getQuery
 	test.aggregateAnswers = aggregateAnswers
 	test.evaluate = evaluate
@@ -29,6 +30,7 @@ function test.test(  )
 	-- Do the job.
 	test.print( 'Test.' )
 	cutorch.synchronize(  )
+	test.changeModel( test.model )
 	test.model:evaluate(  )
 	for q = 1, test.numQuery do
 		test.donkeys:addjob(

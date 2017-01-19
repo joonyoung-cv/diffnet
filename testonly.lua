@@ -16,7 +16,7 @@ task:setInputStat(  )
 -- Get necessary data. 
 local opt = task:getOption(  )
 local model, se = task:getModel(  )
-local fun1, fun2, fun3 = task:getFunctionTest(  )
+local fun1, fun2, fun3, fun4 = task:getFunctionTest(  )
 local numQuery = task:getNumQuery(  )
 
 -- Hire donkeys working for data loading.
@@ -49,7 +49,7 @@ test = paths.dofile( 'test.lua' )
 test.setOption( opt, numQuery )
 test.setModel( model )
 test.setDonkey( donkeys )
-test.setFunction( fun1, fun2, fun3 )
+test.setFunction( fun1, fun2, fun3, fun4 )
 
 -- Do the job.
 test.test(  )

@@ -33,7 +33,8 @@ end
 function train.setDonkey( donkeys )
 	train.donkeys = donkeys
 end
-function train.setFunction( dataLoader, evaluator )
+function train.setFunction( changeModel, dataLoader, evaluator )
+	train.changeModel = changeModel
 	train.dataLoader = dataLoader
 	train.evaluator = evaluator
 end
@@ -84,6 +85,7 @@ function train.trainBatch( inputsCpu, labelsCpu )
 	train.netTimer:reset(  )
 	train.inputs:resize( inputsCpu:size(  ) ):copy( inputsCpu )
 	train.labels:resize( labelsCpu:size(  ) ):copy( labelsCpu )
+	train.changeModel( train.model )
 	train.model:zeroGradParameters(  )
 	-- Forward pass.
 	cutorch.synchronize(  )

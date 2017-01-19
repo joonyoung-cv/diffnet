@@ -16,8 +16,8 @@ task:setInputStat(  )
 -- Get necessary data. 
 local opt = task:getOption(  )
 local model, se = task:getModel(  )
-local funtr1, funtr2 = task:getFunctionTrain(  )
-local funval1, funval2 = task:getFunctionVal(  )
+local funtr1, funtr2, funtr3 = task:getFunctionTrain(  )
+local funval1, funval2, funval3 = task:getFunctionVal(  )
 local numbtr, numbval = task:getNumBatch(  )
 
 -- Hire donkeys working for data loading.
@@ -50,14 +50,14 @@ train = paths.dofile( 'train.lua' )
 train.setOption( opt )
 train.setModel( model )
 train.setDonkey( donkeys )
-train.setFunction( funtr1, funtr2 )
+train.setFunction( funtr1, funtr2, funtr3 )
 
 -- Set val.
 val = paths.dofile( 'val.lua' )
 val.setOption( opt, numbval )
 val.setModel( model )
 val.setDonkey( donkeys )
-val.setFunction( funval1, funval2 )
+val.setFunction( funval1, funval2, funval3 )
 
 -- Do the job.
 for e = se, opt.numEpoch do
