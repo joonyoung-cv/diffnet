@@ -10,6 +10,7 @@ function task:__init(  )
 	self.inputStat = {  }
 	self.numBatchTrain = 0
 	self.numBatchVal = 0
+	self.numQuery = 0
 end
 function task:setOption( arg )
 	self.opt = self:parseOption( arg )
@@ -34,6 +35,7 @@ function task:setOption( arg )
 	assert( self.opt.pathOptim )
 	assert( self.opt.pathTrainLog )
 	assert( self.opt.pathValLog )
+	assert( self.opt.pathTestLog )
 	paths.mkdir( self.opt.dirRoot )
 	paths.mkdir( self.opt.dirModel )
 	print( self.opt )
@@ -64,11 +66,16 @@ function task:setDb(  )
 		self:print( 'Done.' )
 	end
 	self.numBatchTrain, self.numBatchVal = self:setNumBatch(  )
+	self.numQuery = self:setNumQuery(  )
 	assert( self.numBatchTrain > 0 )
 	assert( self.numBatchVal > 0 )
+	assert( self.numQuery > 0 )
 end
 function task:getNumBatch(  )
 	return self.numBatchTrain, self.numBatchVal
+end
+function task:getNumQuery(  )
+	return self.numQuery
 end
 function task:setInputStat(  )
 	if self.opt.caffeInput then 
@@ -209,6 +216,7 @@ function task:parseOption( arg )
 	opt.pathOptim = paths.concat( opt.dirModel, 'optimState_%03d.t7' )
 	opt.pathTrainLog = paths.concat( opt.dirModel, 'train.log' )
 	opt.pathValLog = paths.concat( opt.dirModel, 'val.log' )
+	opt.pathTestLog = paths.concat( opt.dirModel, 'test_%d.log' )
 	-- Value processing.
 	opt.learnRate = opt.learnRate:split( ',' )
 	for k,v in pairs( opt.learnRate ) do opt.learnRate[ k ] = tonumber( v ) end
@@ -251,6 +259,9 @@ function task:setNumBatch(  )
 	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 )  / batchSize )
 	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 )  / batchSize )
 	return numBatchTrain, numBatchVal
+end
+function task:setNumQuery(  )
+	return self.dbval.vid2path:size( 1 )
 end
 function task:estimateInputStat(  )
 	local numIm = 10000
@@ -401,6 +412,87 @@ function task:evalBatch( output, label )
 		end
 	end
 	return torch.Tensor{ top1 * 100 / batchSize }
+end
+function task:getQuery( queryNumber )
+	local augments = torch.Tensor{
+			  { 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 1.0, 0.5 },
+			  { 0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 1.0, 1.0, 0.5 },
+			  { 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0 } }
+	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
+	local numAugment = augments:size( 2 )
+	local stride = 1
+	local cropSize = self.opt.cropSize
+	local vid = queryNumber
+	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
+	local numFrame = self.dbval.vid2numim[ vid ]
+	local numSeq = math.floor( numFrame / stride ) + 1
+	local query = torch.Tensor( numSeq * numAugment, 3, cropSize, cropSize )
+	local fcnt = 0
+	for seq = 1, numSeq do
+		local startFrame = 1 + stride * ( seq - 1 )
+		for a = 1, numAugment do
+			local rw = augments[ 1 ][ a ]
+			local rh = augments[ 2 ][ a ]
+			local rf = augments[ 3 ][ a ]
+			local fid = math.min( numFrame, startFrame )
+			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+			fcnt = fcnt + 1
+			query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+		end
+	end
+	assert( query:size( 1 ) % self.opt.batchSize % self.opt.numGpu == 0 )
+	return query
+end
+function task:aggregateAnswers( answers )
+	for k, v in pairs( answers ) do
+		answers[ k ] = v:mean( 1 )
+	end
+	return answers
+end
+function task:evaluate( answers, qids )
+	local numQuery = answers[ 1 ]:size( 1 )
+	local numClass = self.dbval.cid2name:size( 1 )
+	local scores = {  }
+	assert( qids:numel(  ) == numQuery )
+	assert( qids:max(  ) == numQuery )
+	assert( self.dbval.vid2path:size( 1 ) == numQuery )
+	for k, v in pairs( answers ) do
+		local pathTestLog = self.opt.pathTestLog:format( k )
+		local testLogger = io.open( pathTestLog, 'w' )
+		testLogger:write( 'QUERY-LEVEL EVALUATION\n' )
+		print( 'QUERY-LEVEL EVALUATION' )
+		local qid2top1 = torch.Tensor( numQuery ):fill( 0 )
+		local cid2num = torch.Tensor( numClass ):fill( 0 )
+		local cid2top1 = torch.Tensor( numClass ):fill( 0 )
+		local _, pcids = v:float(  ):sort( 2, true )
+		for q = 1, numQuery do
+			local qid = qids[ q ]
+			local pcid = pcids[ q ][ 1 ]
+			local cid = self.dbval.vid2cid[ qid ]
+			local vpath = ffi.string( torch.data( self.dbval.vid2path[ qid ] ) )
+			local score = 0
+			if pcid == cid then score = 1 end
+			qid2top1[ qid ] = score
+			cid2top1[ cid ] = cid2top1[ cid ] + score
+			cid2num[ cid ] = cid2num[ cid ] + 1
+			testLogger:write( string.format( 'QID %06d SCORE %.2f PRED %06d GT %06d PATH %s\n',
+			qid, score, pcid, cid, vpath ) )
+		end
+		testLogger:write( string.format( 'MEAN TOP1 %.2f\n', qid2top1:mean(  ) * 100 ) )
+		print( string.format( 'MEAN TOP1 %.2f', qid2top1:mean(  ) * 100 ) )
+		testLogger:write( 'CLASS-LEVEL EVALUATION\n' )
+		print( 'CLASS-LEVEL EVALUATION' )
+		cid2top1:cdiv( cid2num )
+		for cid = 1, numClass do
+			local cname = ffi.string( torch.data( self.dbval.cid2name[ cid ] ) )
+			local score = cid2top1[ cid ] * 100
+			testLogger:write( string.format( 'CID %03d SCORE %.2f CNAME %s\n', cid, score, cname ) )
+			print( string.format( 'CID %03d SCORE %.2f CNAME %s', cid, score, cname ) )
+		end
+		testLogger:write( string.format( 'MEAN CLASS SCORE %.2f', cid2top1:mean(  ) * 100 ) )
+		print( string.format( 'MEAN CLASS SCORE %.2f', cid2top1:mean(  ) * 100 ) )
+		testLogger:close(  )
+	end
 end
 --------------------------------------------------
 -------- TASK-SPECIFIC INTERNAL FUNCTIONS --------
