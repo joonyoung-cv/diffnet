@@ -1,4 +1,6 @@
+require 'image'
 local ffi = require 'ffi'
+local ip = require 'improc'
 local task = torch.class( 'TaskManager' )
 --------------------------------------------
 -------- TASK-INDEPENDENT FUNCTIONS --------
@@ -16,7 +18,6 @@ function task:setOption( arg )
 	self.opt = self:parseOption( arg )
 	self:setModelSpecificOption(  )
 	assert( self.opt.numGpu )
-	assert( self.opt.backend )
 	assert( self.opt.numDonkey )
 	assert( self.opt.data )
 	assert( self.opt.numEpoch )
@@ -29,7 +30,6 @@ function task:setOption( arg )
 	assert( self.opt.dirRoot )
 	assert( self.opt.pathDbTrain )
 	assert( self.opt.pathDbVal )
-	assert( self.opt.pathImStat )
 	assert( self.opt.dirModel )
 	assert( self.opt.pathModel )
 	assert( self.opt.pathOptim )
@@ -78,19 +78,7 @@ function task:getNumQuery(  )
 	return self.numQuery
 end
 function task:setInputStat(  )
-	if self.opt.caffeInput then 
-		self.opt.pathImStat = self.opt.pathImStat:match( '(.+).t7$' ) .. 'Caffe.t7' 
-	end
-	if paths.filep( self.opt.pathImStat ) then
-		self:print( 'Load input data statistics.' )
-		self.inputStat = torch.load( self.opt.pathImStat )
-		self:print( 'Done.' )
-	else
-		self:print( 'Estimate input data statistics.' )
-		self.inputStat = self:estimateInputStat(  )
-		torch.save( self.opt.pathImStat, self.inputStat )
-		self:print( 'Done.' )
-	end
+	self.inputStat = self:estimateInputStat(  )
 end
 function task:getFunctionTrain(  )
 	return
@@ -117,8 +105,13 @@ function task:getModel(  )
 	local pathOptim = self.opt.pathOptim
 	local numGpu = self.opt.numGpu
 	local startFrom = self.opt.startFrom
-	local backend = self.opt.backend
+	local cudnnMode = self.opt.cudnn
 	local startEpoch = 1
+	require 'cudnn'
+	if cudnnMode == 'fastest' then
+		cudnn.fastest = true
+		cudnn.benchmark = true
+ 	end
 	for e = 1, numEpoch do
 		local modelPath = pathModel:format( e )
 		local optimPath = pathOptim:format( e )
@@ -129,18 +122,15 @@ function task:getModel(  )
 	if startEpoch == 1 and startFrom:len(  ) == 0 then
 		self:print( 'Create model.' )
 		model = self:defineModel(  )
-		if backend == 'cudnn' then
-			require 'cudnn'
-			cudnn.convert( model, cudnn )
-		end
+		cudnn.convert( model, cudnn )
 		params, grads, optims = self:groupParams( model )
 	elseif startEpoch == 1 and startFrom:len(  ) > 0 then
 		self:print( 'Load user-defined model.' .. startFrom )
-		model = loadDataParallel( startFrom, numGpu, backend )
+		model = loadDataParallel( startFrom, numGpu )
 		params, grads, optims = self:groupParams( model )
 	elseif startEpoch > 1 then
 		self:print( string.format( 'Load model from epoch %d.', startEpoch - 1 ) )
-		model = loadDataParallel( pathModel:format( startEpoch - 1 ), numGpu, backend )
+		model = loadDataParallel( pathModel:format( startEpoch - 1 ), numGpu )
 		params, grads, _ = self:groupParams( model )
 		optims = torch.load( pathOptim:format( startEpoch - 1 ) )
 	end
@@ -148,8 +138,8 @@ function task:getModel(  )
 	local criterion = self:defineCriterion(  )
 	self:print( 'Model looks' )
 	print( model )
-	print(criterion)
-	self:print( 'Convert model to cuda.' )
+	print( criterion )
+	self:print( 'Put net on gpu.' )
 	model = model:cuda(  )
 	criterion:cuda(  )
 	self:print( 'Done.' )
@@ -180,28 +170,27 @@ function task:parseOption( arg )
 	cmd:option( '-task', arg[ 2 ] )
 	-- System.
 	cmd:option( '-numGpu', 4, 'Number of GPUs.' )
-	cmd:option( '-backend', 'cudnn', 'cudnn or nn.' )
 	cmd:option( '-numDonkey', 16, 'Number of donkeys for data loading.' )
+	cmd:option( '-cudnn', 'fastest', 'fastest | default' )
 	-- Data.
 	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
-	cmd:option( '-imageSize', 240, 'Short side of initial resize.' )
+	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
 	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
 	cmd:option( '-epochSize', 75, 'Number of batches per epoch.' )
-	cmd:option( '-batchSize', 128, 'Frame-level mini-batch size.' )
-	cmd:option( '-learnRate', '1e-3,1e-3', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
+	cmd:option( '-batchSize', 256, 'Frame-level mini-batch size.' )
+	cmd:option( '-learnRate', '1e-2,1e-2', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
 	cmd:option( '-momentum', 0.9, 'Momentum.' )
-	cmd:option( '-weightDecay', 5e-4, 'Weight decay.' )
+	cmd:option( '-weightDecay', 1e-4, 'Weight decay.' )
 	cmd:option( '-startFrom', '', 'Path to the initial model. Using it for LR decay is recommended.' )
 	local opt = cmd:parse( arg or {  } )
 	-- Set dst paths.
 	local dirRoot = paths.concat( gpath.dataout, opt.data )
 	local pathDbTrain = paths.concat( dirRoot, 'dbTrain.t7' )
 	local pathDbVal = paths.concat( dirRoot, 'dbVal.t7' )
-	local pathImStat = paths.concat( dirRoot, 'inputStat.t7' )
-	local ignore = { numGpu=true, backend=true, numDonkey=true, data=true, numEpoch=true, startFrom=true }
+	local ignore = { numGpu=true, numDonkey=true, data=true, numEpoch=true, startFrom=true }
 	local dirModel = paths.concat( dirRoot, cmd:string( opt.task, opt, ignore ) )
 	if opt.startFrom ~= '' then
 		local baseDir, epoch = opt.startFrom:match( '(.+)/model_(%d+).t7' )
@@ -210,7 +199,6 @@ function task:parseOption( arg )
 	opt.dirRoot = dirRoot
 	opt.pathDbTrain = pathDbTrain
 	opt.pathDbVal = pathDbVal
-	opt.pathImStat = pathImStat
 	opt.dirModel = dirModel
 	opt.pathModel = paths.concat( opt.dirModel, 'model_%03d.t7' )
 	opt.pathOptim = paths.concat( opt.dirModel, 'optimState_%03d.t7' )
@@ -256,64 +244,62 @@ function task:createDbVal(  )
 end
 function task:setNumBatch(  )
 	local batchSize = self.opt.batchSize
-	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 )  / batchSize )
-	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 )  / batchSize )
+	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 ) / batchSize )
+	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 ) / batchSize )
 	return numBatchTrain, numBatchVal
 end
 function task:setNumQuery(  )
 	return self.dbval.vid2path:size( 1 )
 end
 function task:estimateInputStat(  )
-	local numIm = 10000
-	local batchSize = self.opt.batchSize
-	local numBatch = math.ceil( numIm / batchSize )
-	local meanEstimate = torch.Tensor( 3 ):fill( 0 )
-	local stdEstimate = torch.Tensor( 3 ):fill( 0 )
-	for b = 1, numBatch do
-		local batch = self:getBatchTrain(  )
-		assert( batch:dim(  ) == 4 )
-		self:print( string.format( '%.1f%% (%d/%d)', b * 100 / numBatch, b, numBatch ) )
-		meanEstimate:add( batch:mean( 4 ):mean( 3 ):mean( 1 ):squeeze(  ) )
-		stdEstimate:add( batch:view( batchSize, 3, -1 ):std( 3 ):mean( 1 ):squeeze(  )  )
-	end
-	meanEstimate:div( numBatch )
-	stdEstimate:div( numBatch )
-	return { mean = meanEstimate, std = stdEstimate }
+	local mean = { 0.485, 0.456, 0.406 }
+	local std = { 0.229, 0.224, 0.225 }
+	local eigval = torch.Tensor{ 0.2175, 0.0188, 0.0045 }
+	local eigvec = torch.Tensor{
+			  { -0.5675,  0.7192,  0.4009 },
+			  { -0.5808, -0.0045, -0.8140 },
+			  { -0.5836, -0.6948,  0.4203 } }
+	return { mean = mean, std = std, eigval = eigval, eigvec = eigvec }
 end
 function task:setModelSpecificOption(  )
 	self.opt.cropSize = 224
-	self.opt.keepAspect = true
-	self.opt.normalizeStd = false
-	self.opt.caffeInput = true
 	self.opt.numOut = 1
 end
 function task:defineModel(  )
-	require 'loadcaffe'
+	require 'cudnn'
+	require 'cunn'
 	-- Get params.
 	local numGpu = self.opt.numGpu
+	local batchSize = self.opt.batchSize
 	local numClass = self.dbtr.cid2name:size( 1 )
 	local dropout = self.opt.dropout
-	local proto = gpath.net.vgg16_caffe_proto
-	local caffemodel = gpath.net.vgg16_caffe_model
+	local inputSize = self.opt.cropSize
 	-- Check options.
 	assert( self.opt.cropSize == 224 )
-	assert( self.opt.keepAspect )
-	assert( not self.opt.normalizeStd )
-	assert( self.opt.caffeInput )
 	assert( self.opt.numOut == 1 )
+	assert( batchSize % numGpu == 0 )
+	assert( ( batchSize / numGpu ) % 1 == 0 )
 	assert( dropout >= 0 and dropout <= 1 )
-	-- Create model.
-	self:print( 'Load pre-trained Caffe feature.' )
-	local features = loadcaffe.load( proto, caffemodel, self.opt.backend )
-	features:remove( 40 ) -- removes softmax.
-	features:remove( 39 ) -- removes fc.
-	features:remove( 38 ) -- removes dropout.
-	features:remove( 35 ) -- removes dropout.
-	features:insert( nn.Dropout( dropout ), 35 )
-	features:add( nn.Dropout( dropout ) )
+	-- Make initial model.
+	local features_ = torch.load( gpath.net.res18_torch_model )
+	features_:remove(  ) -- removes classifier.
+	--[[local features = nn.Sequential(  )
+	for l = 1, #features_.modules do
+		local module = features_.modules[ l ]
+		if torch.type( module ) == 'nn.Sequential' then
+			for m = 1, #module.modules do
+				features:add( module.modules[ m ] )
+			end
+		else
+			features:add( module )
+		end
+	end]]--
+	local features = features_
 	features:cuda(  )
 	local classifier = nn.Sequential(  )
-	classifier:add( nn.Linear( 4096, numClass ) )
+	local linear = nn.Linear( 512, numClass )
+	linear.bias:zero(  )
+	classifier:add( linear )
 	classifier:add( nn.LogSoftMax(  ) )
 	classifier:cuda(  )
 	local model = nn.Sequential(  )
@@ -340,6 +326,7 @@ function task:groupParams( model )
 		learningRate = self.opt.learnRate[ 1 ],
 		learningRateDecay = 0.0,
 		momentum = self.opt.momentum,
+		nesterov = true,
 		dampening = 0.0,
 		weightDecay = self.opt.weightDecay 
 	}
@@ -347,6 +334,7 @@ function task:groupParams( model )
 		learningRate = self.opt.learnRate[ 2 ],
 		learningRateDecay = 0.0,
 		momentum = self.opt.momentum,
+		nesterov = true,
 		dampening = 0.0,
 		weightDecay = self.opt.weightDecay 
 	}
@@ -365,19 +353,33 @@ function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
 	local cropSize = self.opt.cropSize
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
-	local label = torch.LongTensor( batchSize )
 	local numVideo = self.dbtr.vid2path:size( 1 )
+	local eigval = self.inputStat.eigval
+	local eigvec = self.inputStat.eigvec
+	local mean = self.inputStat.mean
+	local std = self.inputStat.std
+	local label = torch.LongTensor( batchSize )
 	for v = 1, batchSize do
+		collectgarbage(  )
 		local vid = torch.random( 1, numVideo )
 		local vpath = ffi.string( torch.data( self.dbtr.vid2path[ vid ] ) )
 		local numFrame = self.dbtr.vid2numim[ vid ]
 		local cid = self.dbtr.vid2cid[ vid ]
 		local fid = torch.random( 1, numFrame )
-		local rw = torch.uniform(  )
-		local rh = torch.uniform(  )
-		local rf = torch.uniform(  )
+		local randn, alpha = {  }, {  }
+		for i = 1, 5 do randn[ i ] = torch.uniform(  ) end
+		for i = 1, 3 do alpha[ i ] = 1.0 + torch.uniform( -0.4, 0.4 ) end
+		local alphaLight = torch.Tensor( 3 ):normal( 0, 0.1 ):float(  )
+		local order = torch.randperm( 3 ):totable(  )
+		local prob = torch.uniform(  )
 		local fpath = paths.concat( vpath, string.format( self.dbtr.frameFormat, fid ) )
-		input[ v ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+		local im = image.load( fpath, 3, 'float' )
+		im = ip.RandomSizedCrop( im, cropSize, randn )
+		im = ip.ColorJitter( im, order, alpha )
+		im = ip.Lighting( im, alphaLight, eigval, eigvec )
+		im = ip.ColorNormalize( im, mean, std )
+		im = ip.HorizontalFlip( im, prob )
+		input[ v ]:copy( im )
 		label[ v ] = cid
 	end
 	return input, label
@@ -385,33 +387,41 @@ end
 function task:getBatchVal( vidStart )
 	local batchSize = self.opt.batchSize
 	local cropSize = self.opt.cropSize
+	local imageSize = self.opt.imageSize
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
+	local mean = self.inputStat.mean
+	local std = self.inputStat.std
 	local label = torch.LongTensor( batchSize )
-	local fcnt = 0
 	for v = 1, batchSize do
+		collectgarbage(  )
 		local vid = vidStart + v - 1
 		local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 		local numFrame = self.dbval.vid2numim[ vid ]
 		local cid = self.dbval.vid2cid[ vid ]
-		local fid = math.floor( math.max( 0, numFrame - 1 ) / 2 ) + 1
+		local fid = math.max( 1, math.floor( numFrame / 2 ) )
 		local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
-		input[ v ]:copy( self:processImageVal( fpath ) )
+		local im = image.load( fpath, 3, 'float' )
+		im = ip.Scale( im, imageSize )
+		im = ip.ColorNormalize( im, mean, std )
+		im = ip.RandomCrop( im, cropSize, 0.5, 0.5 )
+		input[ v ]:copy( im )
 		label[ v ] = cid
 	end
 	return input, label
 end
 function task:evalBatch( output, label )
 	local batchSize = self.opt.batchSize
-	assert( batchSize == output:size( 1 ) )
-	assert( batchSize == label:numel(  ) )
+	local numVideo = output:size( 1 )
+	assert( numVideo == batchSize )
+	assert( numVideo == label:numel(  ) )
 	local _, rank2cid = output:float(  ):sort( 2, true )
 	local top1 = 0
-	for v = 1, batchSize do
+	for v = 1, numVideo do
 		if rank2cid[ v ][ 1 ] == label[ v ] then
 			top1 = top1 + 1
 		end
 	end
-	return torch.Tensor{ top1 * 100 / batchSize }
+	return torch.Tensor{ top1 * 100 / numVideo }
 end
 function task:getQuery( queryNumber )
 	local augments = torch.Tensor{
@@ -422,6 +432,9 @@ function task:getQuery( queryNumber )
 	local numAugment = augments:size( 2 )
 	local stride = 1
 	local cropSize = self.opt.cropSize
+	local imageSize = self.opt.imageSize
+	local mean = self.inputStat.mean
+	local std = self.inputStat.std
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
@@ -429,15 +442,21 @@ function task:getQuery( queryNumber )
 	local query = torch.Tensor( numSeq * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
 	for seq = 1, numSeq do
-		local startFrame = 1 + stride * ( seq - 1 )
+		local fid = 1 + stride * ( seq - 1 )
+		local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+		local im_ = image.load( fpath, 3, 'float' )
 		for a = 1, numAugment do
+			collectgarbage(  )
 			local rw = augments[ 1 ][ a ]
 			local rh = augments[ 2 ][ a ]
 			local rf = augments[ 3 ][ a ]
-			local fid = math.min( numFrame, startFrame )
-			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+			local im = im_:clone(  )
+			im = ip.Scale( im, imageSize )
+			im = ip.ColorNormalize( im, mean, std )
+			im = ip.RandomCrop( im, cropSize, rw, rh )
+			im = ip.HorizontalFlip( im, rf )
 			fcnt = fcnt + 1
-			query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+			query[ fcnt ]:copy( im )
 		end
 	end
 	assert( query:size( 1 ) % self.opt.batchSize % self.opt.numGpu == 0 )
@@ -493,89 +512,4 @@ function task:evaluate( answers, qids )
 		print( string.format( 'MEAN CLASS SCORE %.2f', cid2top1:mean(  ) * 100 ) )
 		testLogger:close(  )
 	end
-end
---------------------------------------------------
--------- TASK-SPECIFIC INTERNAL FUNCTIONS --------
---------------------------------------------------
-require 'image'
-function task:processImageTrain( path, rw, rh, rf )
-	collectgarbage(  )
-	local input = self:loadImage( path )
-	local iW = input:size( 3 )
-	local iH = input:size( 2 )
-	-- Do random crop.
-	local oW = self.opt.cropSize
-	local oH = self.opt.cropSize
-	local h1 = math.ceil( ( iH - oH ) * rh )
-	local w1 = math.ceil( ( iW - oW ) * rw )
-	if iH == oH then h1 = 0 end
-	if iW == oW then w1 = 0 end
-	local out = image.crop( input, w1, h1, w1 + oW, h1 + oH )
-	assert( out:size( 3 ) == oW )
-	assert( out:size( 2 ) == oH )
-	-- Do horz-flip.
-	if rf > 0.5 then out = image.hflip( out ) end
-	-- Normalize.
-	out = self:normalizeImage( out )
-	return out
-end
-function task:processImageVal( path )
-	collectgarbage(  )
-	local input = self:loadImage( path )
-	local iW = input:size( 3 )
-	local iH = input:size( 2 )
-	-- Do central crop.
-	local oW = self.opt.cropSize
-	local oH = self.opt.cropSize
-	local h1 = math.ceil( ( iH - oH ) / 2 )
-	local w1 = math.ceil( ( iW - oW ) / 2 )
-	if iH == oH then h1 = 0 end
-	if iW == oW then w1 = 0 end
-	local out = image.crop( input, w1, h1, w1 + oW, h1 + oH )
-	assert( out:size( 3 ) == oW )
-	assert( out:size( 2 ) == oH )
-	-- Normalize.
-	out = self:normalizeImage( out )
-	return out
-end
-function task:resizeImage( im )
-	local imageSize = self.opt.imageSize
-	if self.opt.keepAspect then
-		if im:size( 3 ) < im:size( 2 ) then
-			im = image.scale( im, imageSize, imageSize * im:size( 2 ) / im:size( 3 ) )
-		else
-			im = image.scale( im, imageSize * im:size( 3 ) / im:size( 2 ), imageSize )
-		end
-	else
-		im = image.scale( im, imageSize, imageSize )
-	end
-	return im
-end
-function task:loadImage( path )
-	local im = image.load( path, 3, 'float' )
-	im = self:resizeImage( im )
-	if self.opt.caffeInput then
-		im = im * 255
-		im = im:index( 1, torch.LongTensor{ 3, 2, 1 } )
-	end
-	return im
-end
-function task:normalizeImage( im )
-	for i = 1, 3 do
-		if self.inputStat.mean then im[ i ]:add( -self.inputStat.mean[ i ] ) end
-		if self.inputStat.std and self.opt.normalizeStd then im[ i ]:div( self.inputStat.std[ i ] ) end
-	end
-	return im
-end
-function task:tableToTensor( inputTable, labelTable )
-	local inputTensor, labelTensor
-	local quantity = #labelTable
-	assert( inputTable[ 1 ]:dim(  ) == 3 )
-	inputTensor = torch.Tensor( quantity, 3, self.opt.cropSize, self.opt.cropSize )
-	labelTensor = torch.LongTensor( quantity ):fill( 0 )
-	for i = 1, #inputTable do
-		inputTensor[ i ]:copy( inputTable[ i ] )
-		labelTensor[ i ] = labelTable[ i ]
-	end
-	return inputTensor, labelTensor
 end
