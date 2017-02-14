@@ -282,7 +282,6 @@ function task:defineModel(  )
 	assert( batchSize % numGpu == 0 )
 	assert( ( batchSize / numGpu ) % 2 == 0 )
 	assert( ( self.opt.batchSize / 2 / numGpu ) % 1 == 0 )
-	assert( momentLevel >= 0 and momentLevel <= 12 )
 	-- Make initial model.
 	local features_ = torch.load( gpath.net.res50_torch_model )
 	features_:remove(  ) -- removes classifier.
