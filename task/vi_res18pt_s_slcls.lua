@@ -177,7 +177,7 @@ function task:parseOption( arg )
 	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
-	cmd:option( '-epochSize', 75, 'Number of batches per epoch.' )
+	cmd:option( '-epochSize', 38, 'Number of batches per epoch.' )
 	cmd:option( '-batchSize', 256, 'Frame-level mini-batch size.' )
 	cmd:option( '-learnRate', '1e-2,1e-2', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
 	cmd:option( '-momentum', 0.9, 'Momentum.' )
