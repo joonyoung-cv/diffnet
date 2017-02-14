@@ -176,9 +176,7 @@ function task:parseOption( arg )
 	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
 	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
-	cmd:option( '-seqLength', 2, 'Number of frames per input video' )
 	cmd:option( '-momentLevel', 1, 'Momentum layer id.' )
-	cmd:option( '-momentScale', 1, 'Time scale for momentum.' )
 	cmd:option( '-momentActive', 'none', 'Activation function for momentum.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
@@ -246,10 +244,9 @@ function task:createDbVal(  )
 	return dbval
 end
 function task:setNumBatch(  )
-	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
-	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 ) * seqLength / batchSize )
-	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 ) * seqLength / batchSize )
+	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 ) * 2 / batchSize )
+	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 ) * 2 / batchSize )
 	return numBatchTrain, numBatchVal
 end
 function task:setNumQuery(  )
@@ -275,21 +272,17 @@ function task:defineModel(  )
 	-- Get params.
 	local numGpu = self.opt.numGpu
 	local batchSize = self.opt.batchSize
-	local seqLength = self.opt.seqLength
 	local numClass = self.dbtr.cid2name:size( 1 )
 	local inputSize = self.opt.cropSize
 	local momentLevel = self.opt.momentLevel
-	local momentScale = self.opt.momentScale
 	local momentActive = self.opt.momentActive
-	local seqLength2 = seqLength - momentScale
 	-- Check options.
 	assert( self.opt.cropSize == 224 )
 	assert( self.opt.numOut == 1 )
 	assert( batchSize % numGpu == 0 )
-	assert( ( batchSize / numGpu ) % seqLength == 0 )
-	assert( ( self.opt.batchSize / seqLength / numGpu ) % 1 == 0 )
+	assert( ( batchSize / numGpu ) % 2 == 0 )
+	assert( ( self.opt.batchSize / 2 / numGpu ) % 1 == 0 )
 	assert( momentLevel >= 0 and momentLevel <= 12 )
-	assert( momentScale < seqLength )
 	-- Make initial model.
 	local features_ = torch.load( gpath.net.res18_torch_model )
 	features_:remove(  ) -- removes classifier.
@@ -339,9 +332,9 @@ function task:defineModel(  )
 	-- Insert momentum if needed.
 	local function defineMoment( numCh, numRow, numCol )
 		local moment = nn.Sequential(  )
-		moment:add( nn.View( -1, seqLength, numCh * numRow * numCol ) )
-		local currf = nn.Narrow( 2, 1, seqLength2 )
-		local nextf = nn.Narrow( 2, 1 + momentScale, seqLength2 )
+		moment:add( nn.View( -1, 2, numCh * numRow * numCol ) )
+		local currf = nn.Narrow( 2, 1, 1 )
+		local nextf = nn.Narrow( 2, 2, 1 )
 		moment:add( nn.ConcatTable(  ):add( nextf ):add( currf ) )
 		moment:add( nn.CSubTable(  ) )
 		if momentActive == 'abs' then
@@ -349,7 +342,7 @@ function task:defineModel(  )
 		elseif momentActive == 'tanh' then
 			moment:add( nn.Tanh(  ) )
 		end
-		moment:add( nn.View( -1, seqLength2 * numCh, numRow, numCol ) )
+		moment:add( nn.View( -1, numCh, numRow, numCol ) )
 		moment:cuda(  )
 		return moment
 	end
@@ -401,9 +394,8 @@ function task:changeModelTest( model )
 end
 function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
-	local seqLength = self.opt.seqLength
 	local cropSize = self.opt.cropSize
-	local numVideoToSample = batchSize / seqLength
+	local numVideoToSample = batchSize / 2
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
 	local numVideo = self.dbtr.vid2path:size( 1 )
 	local eigval = self.inputStat.eigval
@@ -417,7 +409,7 @@ function task:getBatchTrain(  )
 		local vpath = ffi.string( torch.data( self.dbtr.vid2path[ vid ] ) )
 		local numFrame = self.dbtr.vid2numim[ vid ]
 		local cid = self.dbtr.vid2cid[ vid ]
-		local startFrame = torch.random( 1, math.max( 1, numFrame - seqLength + 1 ) )
+		local startFrame = torch.random( 1, math.max( 1, numFrame - 1 ) )
 		-- Keep random numbers within a video.
 		local randn, alpha = {  }, {  }
 		for i = 1, 5 do randn[ i ] = torch.uniform(  ) end
@@ -426,7 +418,7 @@ function task:getBatchTrain(  )
 		local order = torch.randperm( 3 ):totable(  )
 		local prob = torch.uniform(  )
 		-- Do the job.
-		for f = 1, seqLength do
+		for f = 1, 2 do
 			collectgarbage(  )
 			fcnt = fcnt + 1
 			local fid = math.min( numFrame, startFrame + f - 1 )
@@ -444,12 +436,11 @@ function task:getBatchTrain(  )
 	return input, label
 end
 function task:getBatchVal( fidStart )
-	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
 	local cropSize = self.opt.cropSize
 	local imageSize = self.opt.imageSize
-	local vidStart = ( fidStart - 1 ) / seqLength + 1
-	local numVideoToSample = batchSize / seqLength
+	local vidStart = ( fidStart - 1 ) / 2 + 1
+	local numVideoToSample = batchSize / 2
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
 	local mean = self.inputStat.mean
 	local std = self.inputStat.std
@@ -460,8 +451,8 @@ function task:getBatchVal( fidStart )
 		local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 		local numFrame = self.dbval.vid2numim[ vid ]
 		local cid = self.dbval.vid2cid[ vid ]
-		local startFrame = math.floor( math.max( 0, numFrame - seqLength ) / 2 ) + 1
-		for f = 1, seqLength do
+		local startFrame = math.floor( math.max( 0, numFrame - 2 ) / 2 ) + 1
+		for f = 1, 2 do
 			collectgarbage(  )
 			fcnt = fcnt + 1
 			local fid = math.min( numFrame, startFrame + f - 1 )
@@ -477,10 +468,9 @@ function task:getBatchVal( fidStart )
 	return input, label
 end
 function task:evalBatch( output, label )
-	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
 	local numVideo = output:size( 1 )
-	assert( numVideo == batchSize / seqLength )
+	assert( numVideo == batchSize / 2 )
 	assert( numVideo == label:numel(  ) )
 	local _, rank2cid = output:float(  ):sort( 2, true )
 	local top1 = 0
@@ -499,7 +489,6 @@ function task:getQuery( queryNumber )
 	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
 	local numAugment = augments:size( 2 )
 	local stride = 1
-	local seqLength = self.opt.seqLength
 	local cropSize = self.opt.cropSize
 	local imageSize = self.opt.imageSize
 	local mean = self.inputStat.mean
@@ -507,8 +496,8 @@ function task:getQuery( queryNumber )
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numSeq = math.floor( math.max( 1, numFrame - seqLength + 1 ) / stride ) + 1
-	local query = torch.Tensor( seqLength * numSeq * numAugment, 3, cropSize, cropSize )
+	local numSeq = math.floor( math.max( 1, numFrame - 1 ) / stride ) + 1
+	local query = torch.Tensor( 2 * numSeq * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
 	for seq = 1, numSeq do
 		local startFrame = 1 + stride * ( seq - 1 )
@@ -516,7 +505,7 @@ function task:getQuery( queryNumber )
 			local rw = augments[ 1 ][ a ]
 			local rh = augments[ 2 ][ a ]
 			local rf = augments[ 3 ][ a ]
-			for f = 1, seqLength do
+			for f = 1, 2 do
 				collectgarbage(  )
 				fcnt = fcnt + 1
 				local fid = math.min( numFrame, startFrame + f - 1 )
@@ -530,7 +519,7 @@ function task:getQuery( queryNumber )
 			end
 		end
 	end
-	assert( query:size( 1 ) % self.opt.batchSize % ( self.opt.numGpu * seqLength ) == 0 )
+	assert( query:size( 1 ) % self.opt.batchSize % ( self.opt.numGpu * 2 ) == 0 )
 	return query
 end
 function task:aggregateAnswers( answers )
