@@ -28,7 +28,7 @@ function makeDataParallel( model, numGpu )
 		dpt.gradInput = nil
 		model = dpt
 	end
-   return model
+	return model
 end
 function saveDataParallel( filename, model )
 	if torch.type( model ) == 'nn.DataParallelTable' then model = model:get( 1 ) end
@@ -36,7 +36,7 @@ function saveDataParallel( filename, model )
 	torch.save( filename, model )
 end
 function loadDataParallel( filename, numGpu )
-   local model = torch.load( filename ):cuda(  )
+	local model = torch.load( filename ):cuda(  )
 	if torch.type( model ) == 'nn.DataParallelTable' then model = model:get( 1 ) end
 	model.__memoryOptimized = nil
 	return makeDataParallel( model, numGpu )
