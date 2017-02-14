@@ -283,7 +283,7 @@ function task:defineModel(  )
 	-- Make initial model.
 	local features_ = torch.load( gpath.net.res18_torch_model )
 	features_:remove(  ) -- removes classifier.
-	--[[local features = nn.Sequential(  )
+	local features = nn.Sequential(  )
 	for l = 1, #features_.modules do
 		local module = features_.modules[ l ]
 		if torch.type( module ) == 'nn.Sequential' then
@@ -293,7 +293,7 @@ function task:defineModel(  )
 		else
 			features:add( module )
 		end
-	end]]--
+	end
 	local features = features_
 	features:cuda(  )
 	local classifier = nn.Sequential(  )
