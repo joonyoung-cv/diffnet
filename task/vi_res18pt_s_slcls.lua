@@ -175,8 +175,6 @@ function task:parseOption( arg )
 	-- Data.
 	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
 	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
-	-- Model.
-	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
 	cmd:option( '-epochSize', 75, 'Number of batches per epoch.' )
@@ -272,14 +270,12 @@ function task:defineModel(  )
 	local numGpu = self.opt.numGpu
 	local batchSize = self.opt.batchSize
 	local numClass = self.dbtr.cid2name:size( 1 )
-	local dropout = self.opt.dropout
 	local inputSize = self.opt.cropSize
 	-- Check options.
 	assert( self.opt.cropSize == 224 )
 	assert( self.opt.numOut == 1 )
 	assert( batchSize % numGpu == 0 )
 	assert( ( batchSize / numGpu ) % 1 == 0 )
-	assert( dropout >= 0 and dropout <= 1 )
 	-- Make initial model.
 	local features_ = torch.load( gpath.net.res18_torch_model )
 	features_:remove(  ) -- removes classifier.

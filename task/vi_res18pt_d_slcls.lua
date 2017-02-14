@@ -176,7 +176,6 @@ function task:parseOption( arg )
 	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
 	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
-	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	cmd:option( '-seqLength', 2, 'Number of frames per input video' )
 	cmd:option( '-momentLevel', 1, 'Momentum layer id.' )
 	cmd:option( '-momentScale', 1, 'Time scale for momentum.' )
@@ -278,7 +277,6 @@ function task:defineModel(  )
 	local batchSize = self.opt.batchSize
 	local seqLength = self.opt.seqLength
 	local numClass = self.dbtr.cid2name:size( 1 )
-	local dropout = self.opt.dropout
 	local inputSize = self.opt.cropSize
 	local momentLevel = self.opt.momentLevel
 	local momentScale = self.opt.momentScale
@@ -290,7 +288,6 @@ function task:defineModel(  )
 	assert( batchSize % numGpu == 0 )
 	assert( ( batchSize / numGpu ) % seqLength == 0 )
 	assert( ( self.opt.batchSize / seqLength / numGpu ) % 1 == 0 )
-	assert( dropout >= 0 and dropout <= 1 )
 	assert( momentLevel >= 0 and momentLevel <= 12 )
 	assert( momentScale < seqLength )
 	-- Make initial model.
