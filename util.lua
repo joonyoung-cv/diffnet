@@ -20,7 +20,7 @@ function makeDataParallel( model, numGpu )
 		print( string.format( 'Wrap up model with data parallel table. (X%s)', numGpu ) )
 		local gpus = torch.range( 1, numGpu ):totable(  )
 		local fastest, benchmark = cudnn.fastest, cudnn.benchmark
-		local dpt = nn.DataParallelTable( 1, true, true )
+		local dpt = nn.DataParallelTable( 1 )
 			:add( model, gpus )
 			:threads( function(  )
 				local cudnn = require 'cudnn'
