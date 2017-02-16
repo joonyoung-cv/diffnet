@@ -183,8 +183,9 @@ function task:parseOption( arg )
 	cmd:option( '-backend', 'cudnn', 'cudnn or nn.' )
 	cmd:option( '-numDonkey', 16, 'Number of donkeys for data loading.' )
 	-- Data.
-	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
-	cmd:option( '-imageSize', 240, 'Short side of initial resize.' )
+	cmd:option( '-data', 'UCF101_RGB_S1', 'Name of dataset defined in "./db/"' )
+	cmd:option( '-stride', 2, 'Temporal stride over time.' )
+	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
 	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	cmd:option( '-seqLength', 2, 'Number of frames per input video' )
@@ -486,6 +487,7 @@ end
 function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
 	local seqLength = self.opt.seqLength
+	local stride = self.opt.stride
 	local cropSize = self.opt.cropSize
 	local numVideoToSample = batchSize / seqLength
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
@@ -498,12 +500,12 @@ function task:getBatchTrain(  )
 		local vpath = ffi.string( torch.data( self.dbtr.vid2path[ vid ] ) )
 		local numFrame = self.dbtr.vid2numim[ vid ]
 		local cid = self.dbtr.vid2cid[ vid ]
-		local startFrame = torch.random( 1, math.max( 1, numFrame - seqLength + 1 ) )
+		local startFrame = torch.random( 1, math.max( 1, numFrame - stride * ( seqLength - 1 ) ) )
 		local rw = torch.uniform(  )
 		local rh = torch.uniform(  )
 		local rf = torch.uniform(  )
 		for f = 1, seqLength do
-			local fid = math.min( numFrame, startFrame + f - 1 )
+			local fid = math.min( numFrame, startFrame + stride * ( f - 1 ) )
 			local fpath = paths.concat( vpath, string.format( self.dbtr.frameFormat, fid ) )
 			fcnt = fcnt + 1
 			input[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
@@ -513,8 +515,9 @@ function task:getBatchTrain(  )
 	return input, label
 end
 function task:getBatchVal( fidStart )
-	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
+	local seqLength = self.opt.seqLength
+	local stride = self.opt.stride
 	local cropSize = self.opt.cropSize
 	local vidStart = ( fidStart - 1 ) / seqLength + 1
 	local numVideoToSample = batchSize / seqLength
@@ -527,9 +530,9 @@ function task:getBatchVal( fidStart )
 		local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 		local numFrame = self.dbval.vid2numim[ vid ]
 		local cid = self.dbval.vid2cid[ vid ]
-		local startFrame = math.floor( math.max( 0, numFrame - seqLength ) / 2 ) + 1
+		local startFrame = math.floor( math.max( 0, numFrame - stride * ( seqLength - 1 ) - 1 ) / 2 ) + 1
 		for f = 1, seqLength do
-			local fid = math.min( numFrame, startFrame + f - 1 )
+			local fid = math.min( numFrame, startFrame + stride * ( f - 1 ) )
 			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
 			fcnt = fcnt + 1
 			input[ fcnt ]:copy( self:processImageVal( fpath ) )
@@ -560,23 +563,24 @@ function task:getQuery( queryNumber )
 			  { 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0 } }
 	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
 	local numAugment = augments:size( 2 )
-	local stride = 1
+	local strideChunk = 1
+	local strideFrame = self.opt.stride
 	local seqLength = self.opt.seqLength
 	local cropSize = self.opt.cropSize
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numSeq = math.floor( math.max( 1, numFrame - seqLength + 1 ) / stride ) + 1
+	local numSeq = math.ceil( math.max( 1, numFrame - strideFrame * ( seqLength - 1 ) ) / strideChunk - 1 ) + 1
 	local query = torch.Tensor( seqLength * numSeq * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
 	for seq = 1, numSeq do
-		local startFrame = 1 + stride * ( seq - 1 )
+		local startFrame = 1 + strideChunk * ( seq - 1 )
 		for a = 1, numAugment do
 			local rw = augments[ 1 ][ a ]
 			local rh = augments[ 2 ][ a ]
 			local rf = augments[ 3 ][ a ]
 			for f = 1, seqLength do
-				local fid = math.min( numFrame, startFrame + f - 1 )
+				local fid = math.min( numFrame, startFrame + strideFrame * ( f - 1 ) )
 				local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
 				fcnt = fcnt + 1
 				query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
