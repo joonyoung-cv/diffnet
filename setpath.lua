@@ -1,5 +1,5 @@
 gpath = { db = {  }, net = {  } }
-gpath.db.ucf101 = '/home/dgyoo/workspace/datain/UCF101FRAME/'
+gpath.db.ucf101_rgb_s1 = '/home/dgyoo/workspace/datain/UCF101_25FPS/'
 gpath.net.alex_caffe_model = '/home/dgyoo/workspace/net/caffe/bvlc_alexnet.caffemodel'
 gpath.net.alex_caffe_proto = '/home/dgyoo/workspace/net/caffe/bvlc_alexnet_deploy.prototxt'
 gpath.net.vggm_caffe_model = '/home/dgyoo/workspace/net/caffe/VGG_CNN_M_2048.caffemodel'
