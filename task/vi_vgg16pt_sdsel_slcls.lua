@@ -196,7 +196,7 @@ function task:parseOption( arg )
 	cmd:option( '-diffChance', 0.7, 'Probability to select differentiator path.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
-	cmd:option( '-epochSize', 75, 'Number of batches per epoch.' )
+	cmd:option( '-epochSize', 150, 'Number of batches per epoch.' )
 	cmd:option( '-batchSize', 128, 'Frame-level mini-batch size.' )
 	cmd:option( '-learnRate', '1e-3,1e-3', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
 	cmd:option( '-momentum', 0.9, 'Momentum.' )
