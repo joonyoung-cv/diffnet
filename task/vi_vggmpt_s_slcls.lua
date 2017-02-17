@@ -567,15 +567,3 @@ function task:normalizeImage( im )
 	end
 	return im
 end
-function task:tableToTensor( inputTable, labelTable )
-	local inputTensor, labelTensor
-	local quantity = #labelTable
-	assert( inputTable[ 1 ]:dim(  ) == 3 )
-	inputTensor = torch.Tensor( quantity, 3, self.opt.cropSize, self.opt.cropSize )
-	labelTensor = torch.LongTensor( quantity ):fill( 0 )
-	for i = 1, #inputTable do
-		inputTensor[ i ]:copy( inputTable[ i ] )
-		labelTensor[ i ] = labelTable[ i ]
-	end
-	return inputTensor, labelTensor
-end
