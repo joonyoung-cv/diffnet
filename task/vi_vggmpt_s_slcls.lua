@@ -183,8 +183,8 @@ function task:parseOption( arg )
 	cmd:option( '-backend', 'cudnn', 'cudnn or nn.' )
 	cmd:option( '-numDonkey', 16, 'Number of donkeys for data loading.' )
 	-- Data.
-	cmd:option( '-data', 'UCF101', 'Name of dataset defined in "./db/"' )
-	cmd:option( '-imageSize', 240, 'Short side of initial resize.' )
+	cmd:option( '-data', 'UCF101_RGB_S1', 'Name of dataset defined in "./db/"' )
+	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
 	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	-- Train.
