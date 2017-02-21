@@ -582,7 +582,7 @@ function task:loadImage( path )
 	local im = torch.cat( imu, imv, 1 )
 	im = self:resizeImage( im )
 	if self.opt.caffeInput then
-		im = im * 255
+		im:mul( 255 )
 	end
 	return im
 end

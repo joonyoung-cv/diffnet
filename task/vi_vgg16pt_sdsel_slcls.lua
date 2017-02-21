@@ -702,7 +702,7 @@ function task:loadImage( path )
 	local im = image.load( path, 3, 'float' )
 	im = self:resizeImage( im )
 	if self.opt.caffeInput then
-		im = im * 255
+		im:mul( 255 )
 		im = im:index( 1, torch.LongTensor{ 3, 2, 1 } )
 	end
 	return im
