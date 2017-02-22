@@ -359,7 +359,25 @@ function task:changeModelVal( model )
 	-- Nothing to change.
 end
 function task:changeModelTest( model )
-	-- Nothing to change.
+	local function lin2conv( lin, inch )
+		local fsz = math.sqrt( lin.weight:size( 2 ) / inch )
+		local nf = lin.weight:size( 1 )
+		local conv = nn.SpatialConvolutionMM( inch, nf, fsz, fsz, 1, 1 ):cuda(  )
+		conv.weight:copy( lin.weight )
+		conv.bias:copy( lin.bias )
+		return conv
+	end
+	model = model:get( 1 )
+	model.modules[ 1 ]:remove( 17 )
+	model.modules[ 1 ]:insert( lin2conv( model.modules[ 1 ].modules[ 17 ], 512 ), 17 )
+	model.modules[ 1 ]:remove( 18 )
+	model.modules[ 1 ]:insert( lin2conv( model.modules[ 1 ].modules[ 20 ], 4096 ), 20 )
+	model.modules[ 1 ]:remove( 21 )
+	model.modules[ 2 ]:insert( lin2conv( model.modules[ 2 ].modules[ 1 ], 2048 ), 1 )
+	model.modules[ 2 ]:remove( 2 )
+	cudnn.convert( model, cudnn )
+	model:cuda(  )
+	model = makeDataParallel( model, self.opt.numGpu )
 end
 function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
@@ -414,38 +432,27 @@ function task:evalBatch( output, label )
 	return torch.Tensor{ top1 * 100 / batchSize }
 end
 function task:getQuery( queryNumber )
-	local augments = torch.Tensor{
-			  { 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 1.0, 0.5 },
-			  { 0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 1.0, 1.0, 0.5 },
-			  { 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0 } }
-	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
-	local numAugment = augments:size( 2 )
 	local stride = 1
-	local cropSize = self.opt.cropSize
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numSeq = math.floor( numFrame / stride ) + 1
-	local query = torch.Tensor( numSeq * numAugment, 3, cropSize, cropSize )
-	local fcnt = 0
+	local numSeq = math.floor( numFrame / stride )
+	local query
 	for seq = 1, numSeq do
-		local startFrame = 1 + stride * ( seq - 1 )
-		for a = 1, numAugment do
-			local rw = augments[ 1 ][ a ]
-			local rh = augments[ 2 ][ a ]
-			local rf = augments[ 3 ][ a ]
-			local fid = math.min( numFrame, startFrame )
-			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
-			fcnt = fcnt + 1
-			query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+		local fid = stride * ( seq - 1 ) + 1
+		local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+		local imo, imf = self:processImageTest( fpath )
+		if query == nil then
+			query = torch.Tensor( numSeq * 2, 3, imo:size( 2 ), imo:size( 3 ) )
 		end
+		query[ 2 * ( seq - 1 ) + 1 ]:copy( imo )
+		query[ 2 * ( seq - 1 ) + 2 ]:copy( imf )
 	end
-	assert( query:size( 1 ) % self.opt.batchSize % self.opt.numGpu == 0 )
 	return query
 end
 function task:aggregateAnswers( answers )
 	for k, v in pairs( answers ) do
-		answers[ k ] = v:mean( 1 )
+		answers[ k ] = v:mean( 4 ):mean( 3 ):mean( 1 ):view( 1, -1 )
 	end
 	return answers
 end
@@ -490,7 +497,7 @@ function task:evaluate( answers, qids )
 			print( string.format( 'CID %03d SCORE %.2f CNAME %s', cid, score, cname ) )
 		end
 		testLogger:write( string.format( 'MEAN CLASS SCORE %.2f', cid2top1:mean(  ) * 100 ) )
-		print( string.format( 'MEAN CLASS SCORE %.2f', cid2top1:mean(  ) * 100 ) )
+		print( string.format( 'MEAN CLASS SCORE %.2f\n', cid2top1:mean(  ) * 100 ) )
 		testLogger:close(  )
 	end
 end
@@ -537,6 +544,12 @@ function task:processImageVal( path )
 	-- Normalize.
 	out = self:normalizeImage( out )
 	return out
+end
+function task:processImageTest( path )
+	collectgarbage(  )
+	local imo = self:loadImage( path )
+	local imf = image.hflip( imo )
+	return imo, imf
 end
 function task:resizeImage( im )
 	local s = self.opt.imageSize
