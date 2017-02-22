@@ -62,8 +62,8 @@ function genDb( setName )
 		vid2path[ vid ] = vpath
 		vid2cid[ vid ] = tonumber( cid )
 		local numf = 0
-		for f in paths.files( vpath ) do numf = numf + 1 end
-		vid2numf[ vid ] = numf - 2
+		for f in paths.files( vpath ) do if f:match( '.jpg' ) then numf = numf + 1 end end
+		vid2numf[ vid ] = numf
 		if vid % 100 == 0 then print( vid .. ' videos found for ' .. setName .. '.' ) end
 		assert( vpath:len(  ) > 0 and tonumber( cid ) > 0 and numf > 2 )
 	end
