@@ -636,17 +636,20 @@ function task:processImageVal( path )
 	return out
 end
 function task:resizeImage( im )
-	local imageSize = self.opt.imageSize
+	local s = self.opt.imageSize
+	local w0, h0 = im:size( 3 ), im:size( 2 )
+	local w, h
 	if self.opt.keepAspect then
-		if im:size( 3 ) < im:size( 2 ) then
-			im = image.scale( im, imageSize, imageSize * im:size( 2 ) / im:size( 3 ) )
+		if w0 < h0 then
+			w, h = s, s * h0 / w0
 		else
-			im = image.scale( im, imageSize * im:size( 3 ) / im:size( 2 ), imageSize )
+			w, h = s * w0 / h0, s
 		end
 	else
-		im = image.scale( im, imageSize, imageSize )
+		w, h = s, s
 	end
-	return im
+	if w0 == w or h0 == h then return im end
+	return image.scale( im, w, h )
 end
 function task:loadImage( path )
 	local im = image.load( path, 3, 'float' )
