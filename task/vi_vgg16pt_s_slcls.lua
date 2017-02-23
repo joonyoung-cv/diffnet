@@ -367,7 +367,7 @@ function task:changeModelTest( model )
 		conv.bias:copy( lin.bias )
 		return conv
 	end
-	model = model:get( 1 )
+	if self.opt.numGpu > 1 then model = model:get( 1 ) end
 	model.modules[ 1 ]:remove( 32 )
 	model.modules[ 1 ]:insert( lin2conv( model.modules[ 1 ].modules[ 32 ], 512 ), 32 )
 	model.modules[ 1 ]:remove( 33 )
