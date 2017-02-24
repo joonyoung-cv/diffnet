@@ -370,7 +370,6 @@ function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
 	local cropSize = self.opt.cropSize
 	local numFlow = self.opt.numFlow
-	assert( ( batchSize / self.opt.numGpu ) % numFlow == 0 )
 	local input = torch.Tensor( batchSize, 2, cropSize, cropSize )
 	local label = torch.LongTensor( batchSize / numFlow )
 	local numVideo = self.dbtr.vid2path:size( 1 )
@@ -392,6 +391,7 @@ function task:getBatchTrain(  )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % numFlow == 0 )
 	return input, label
 end
 function task:getBatchVal( fidStart )
@@ -417,6 +417,7 @@ function task:getBatchVal( fidStart )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % numFlow == 0 )
 	return input, label
 end
 function task:evalBatch( output, label )
@@ -459,6 +460,7 @@ function task:getQuery( queryNumber )
 			query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
 		end
 	end
+	assert( ( self.opt.batchSize / self.opt.numGpu ) % numFlow == 0 )
 	assert( query:size( 1 ) % self.opt.batchSize % self.opt.numGpu == 0 )
 	return query
 end
