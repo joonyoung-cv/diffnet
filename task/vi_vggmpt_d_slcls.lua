@@ -462,6 +462,7 @@ function task:getBatchTrain(  )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % seqLength == 0 )
 	return input, label
 end
 function task:getBatchVal( fidStart )
@@ -489,6 +490,7 @@ function task:getBatchVal( fidStart )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % seqLength == 0 )
 	return input, label
 end
 function task:evalBatch( output, label )
@@ -537,6 +539,7 @@ function task:getQuery( queryNumber )
 			end
 		end
 	end
+	assert( ( self.opt.batchSize / self.opt.numGpu ) % seqLength == 0 )
 	assert( query:size( 1 ) % self.opt.batchSize % ( self.opt.numGpu * seqLength ) == 0 )
 	return query
 end
