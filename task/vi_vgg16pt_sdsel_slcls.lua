@@ -563,29 +563,36 @@ function task:getQuery( queryNumber )
 			  { 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 1.0, 0.5 },
 			  { 0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 1.0, 1.0, 0.5 },
 			  { 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0 } }
-	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
 	local numAugment = augments:size( 2 )
-	local strideChunk = 1
-	local strideFrame = self.opt.stride
-	local seqLength = self.opt.seqLength
 	local cropSize = self.opt.cropSize
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numSeq = math.ceil( math.max( 1, numFrame - strideFrame * ( seqLength - 1 ) ) / strideChunk - 1 ) + 1
-	local query = torch.Tensor( seqLength * numSeq * numAugment, 3, cropSize, cropSize )
-	local fcnt = 0
-	for seq = 1, numSeq do
-		local startFrame = 1 + strideChunk * ( seq - 1 )
-		for a = 1, numAugment do
-			local rw = augments[ 1 ][ a ]
-			local rh = augments[ 2 ][ a ]
-			local rf = augments[ 3 ][ a ]
-			for f = 1, seqLength do
-				local fid = math.min( numFrame, startFrame + strideFrame * ( f - 1 ) )
-				local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
-				fcnt = fcnt + 1
-				query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+	local strideFrame = self.opt.stride
+	local seqLength = self.opt.seqLength
+	local lastFrame = math.max( 1, numFrame - strideFrame * ( seqLength - 1 ) )
+	local numChunk = math.min( lastFrame, 25 )
+	local chunks = torch.linspace( 1, lastFrame, numChunk ):round(  )
+	local query = torch.Tensor( seqLength * numChunk * numAugment, 3, cropSize, cropSize )
+	for c = 1, numChunk do
+		local startFrame = chunks[ c ]
+		for f = 1, seqLength do
+			local fid = math.min( numFrame, startFrame + strideFrame * ( f - 1 ) )
+			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+			local im0 = self:normalizeImage( self:loadImage( fpath ) )
+			local w0, h0 = im0:size( 3 ), im0:size( 2 )
+			local w, h = self.opt.cropSize, self.opt.cropSize
+			for a = 1, numAugment do
+				local rw = augments[ 1 ][ a ]
+				local rh = augments[ 2 ][ a ]
+				local rf = augments[ 3 ][ a ]
+				local dh = math.ceil( ( h0 - h ) * rh )
+				local dw = math.ceil( ( w0 - w ) * rw )
+				local im = image.crop( im0, dw, dh, dw + w, dh + h )
+				assert( im:size( 3 ) == w and im:size( 2 ) == h )
+				if rf > 0.5 then im = image.hflip( im ) end
+				local q = ( c - 1 ) * seqLength * numAugment + seqLength * ( a - 1 ) + f
+				query[ q ]:copy( im )
 			end
 		end
 	end
