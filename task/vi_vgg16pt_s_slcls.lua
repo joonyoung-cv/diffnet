@@ -418,26 +418,32 @@ function task:getQuery( queryNumber )
 			  { 0.0, 1.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 1.0, 0.5 },
 			  { 0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 1.0, 1.0, 0.5 },
 			  { 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0 } }
-	augments = augments[ { {  }, { 5 } } ]:cat( augments[ { {  }, { 10 } } ], 2 )
 	local numAugment = augments:size( 2 )
-	local stride = 1
 	local cropSize = self.opt.cropSize
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numSeq = math.floor( numFrame / stride ) + 1
-	local query = torch.Tensor( numSeq * numAugment, 3, cropSize, cropSize )
+	local numSample = math.min( numFrame, 25 )
+	local samples = torch.linspace( 1, numFrame, numSample ):round(  )
+	local query = torch.Tensor( numSample * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
-	for seq = 1, numSeq do
-		local startFrame = 1 + stride * ( seq - 1 )
+	for s = 1, numSample do
+		local fid = samples[ s ]
+		local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+		local im0 = self:normalizeImage( self:loadImage( fpath ) )
+		local w0, h0 = im0:size( 3 ), im0:size( 2 )
+		local w, h = self.opt.cropSize, self.opt.cropSize
 		for a = 1, numAugment do
 			local rw = augments[ 1 ][ a ]
 			local rh = augments[ 2 ][ a ]
 			local rf = augments[ 3 ][ a ]
-			local fid = math.min( numFrame, startFrame )
-			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
+			local dh = math.ceil( ( h0 - h ) * rh )
+			local dw = math.ceil( ( w0 - w ) * rw )
+			local im = image.crop( im0, dw, dh, dw + w, dh + h )
+			assert( im:size( 3 ) == w and im:size( 2 ) == h )
+			if rf > 0.5 then im = image.hflip( im ) end
 			fcnt = fcnt + 1
-			query[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
+			query[ fcnt ]:copy( im )
 		end
 	end
 	assert( query:size( 1 ) % self.opt.batchSize % self.opt.numGpu == 0 )
