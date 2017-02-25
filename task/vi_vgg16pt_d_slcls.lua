@@ -189,7 +189,7 @@ function task:parseOption( arg )
 	-- Model.
 	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
 	cmd:option( '-seqLength', 2, 'Number of frames per input video' )
-	cmd:option( '-diffLevel', 1, 'Differentiator layer id.' )
+	cmd:option( '-diffLevel', 4, 'Differentiator layer id.' )
 	cmd:option( '-diffScale', 1, 'Time scale for differentiation.' )
 	cmd:option( '-diffActive', 'none', 'Activation function for differentiator.' )
 	-- Train.
