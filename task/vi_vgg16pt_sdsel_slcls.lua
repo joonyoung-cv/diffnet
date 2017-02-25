@@ -193,7 +193,7 @@ function task:parseOption( arg )
 	cmd:option( '-mergeAfter', 13, 'Conv layer after which streams are merged.' )
 	cmd:option( '-diffScale', 1, 'Time scale for differentiation.' )
 	cmd:option( '-diffActive', 'none', 'Activation function for differentiator.' )
-	cmd:option( '-diffChance', 0.7, 'Probability to select differentiator path.' )
+	cmd:option( '-diffChance', 0.6, 'Probability to select differentiator path.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
 	cmd:option( '-epochSize', 150, 'Number of batches per epoch.' )
