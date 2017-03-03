@@ -200,6 +200,8 @@ function task:parseOption( arg )
 	cmd:option( '-momentum', 0.9, 'Momentum.' )
 	cmd:option( '-weightDecay', 5e-4, 'Weight decay.' )
 	cmd:option( '-startFrom', '', 'Path to the initial model. Using it for LR decay is recommended.' )
+	-- Test.
+	cmd:option( '-numChunk', 25, 'Number of test chunks per video.' )
 	local opt = cmd:parse( arg or {  } )
 	-- Set dst paths.
 	local dirRoot = paths.concat( gpath.dataout, opt.data )
@@ -207,7 +209,7 @@ function task:parseOption( arg )
 	local pathDbVal = paths.concat( dirRoot, 'dbVal.t7' )
 	local pathImStat = paths.concat( dirRoot, 'inputStat.t7' )
 	if opt.caffeInput == 1 then pathImStat = pathImStat:match( '(.+).t7$' ) .. 'Caffe.t7' end
-	local ignore = { numGpu=true, backend=true, numDonkey=true, data=true, numEpoch=true, startFrom=true }
+	local ignore = { numGpu=true, backend=true, numDonkey=true, data=true, numEpoch=true, startFrom=true, numChunk=true }
 	local dirModel = paths.concat( dirRoot, cmd:string( opt.task, opt, ignore ) )
 	if opt.startFrom ~= '' then
 		local baseDir, epoch = opt.startFrom:match( '(.+)/model_(%d+).t7' )
@@ -222,7 +224,7 @@ function task:parseOption( arg )
 	opt.pathOptim = paths.concat( opt.dirModel, 'optimState_%03d.t7' )
 	opt.pathTrainLog = paths.concat( opt.dirModel, 'train.log' )
 	opt.pathValLog = paths.concat( opt.dirModel, 'val.log' )
-	opt.pathTestLog = paths.concat( opt.dirModel, 'test_%d.log' )
+	opt.pathTestLog = paths.concat( opt.dirModel, 'test_nc%d_%d.log' )
 	-- Value processing.
 	opt.learnRate = opt.learnRate:split( ',' )
 	for k,v in pairs( opt.learnRate ) do opt.learnRate[ k ] = tonumber( v ) end
@@ -521,7 +523,7 @@ function task:getQuery( queryNumber )
 	local strideFrame = self.opt.stride
 	local seqLength = self.opt.seqLength
 	local lastFrame = math.max( 1, numFrame - strideFrame * ( seqLength - 1 ) )
-	local numChunk = math.min( lastFrame, 25 )
+	local numChunk = math.min( lastFrame, self.opt.numChunk )
 	local chunks = torch.linspace( 1, lastFrame, numChunk ):round(  )
 	local query = torch.Tensor( seqLength * numChunk * numAugment, 3, cropSize, cropSize )
 	for c = 1, numChunk do
@@ -564,7 +566,7 @@ function task:evaluate( answers, qids )
 	assert( qids:max(  ) == numQuery )
 	assert( self.dbval.vid2path:size( 1 ) == numQuery )
 	for k, v in pairs( answers ) do
-		local pathTestLog = self.opt.pathTestLog:format( k )
+		local pathTestLog = self.opt.pathTestLog:format( self.opt.numChunk, k )
 		local testLogger = io.open( pathTestLog, 'w' )
 		testLogger:write( 'QUERY-LEVEL EVALUATION\n' )
 		print( 'QUERY-LEVEL EVALUATION' )
