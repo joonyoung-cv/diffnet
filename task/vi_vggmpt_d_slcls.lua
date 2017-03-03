@@ -273,24 +273,11 @@ function task:setNumQuery(  )
 	return self.dbval.vid2path:size( 1 )
 end
 function task:estimateInputStat(  )
-	local numIm = 10000
-	local batchSize = self.opt.batchSize
-	local seqLength = self.opt.seqLength
-	local numBatch = math.ceil( numIm / batchSize )
-	self.opt.seqLength = 1
-	local meanEstimate = torch.Tensor( 3 ):fill( 0 )
-	local stdEstimate = torch.Tensor( 3 ):fill( 0 )
-	for b = 1, numBatch do
-		local batch = self:getBatchTrain(  )
-		assert( batch:dim(  ) == 4 )
-		self:print( string.format( '%.1f%% (%d/%d)', b * 100 / numBatch, b, numBatch ) )
-		meanEstimate:add( batch:mean( 4 ):mean( 3 ):mean( 1 ):squeeze(  ) )
-		stdEstimate:add( batch:view( batchSize, 3, -1 ):std( 3 ):mean( 1 ):squeeze(  )  )
+	if self.opt.caffeInput then -- BGR, [0,255]
+		return { mean = torch.Tensor{ 0.406, 0.456, 0.485 } * 255, torch.Tensor{ 0.225, 0.224, 0.229 } * 255 }
+	else -- RGB, [0,1]
+		return { mean = torch.Tensor{ 0.485, 0.456, 0.406 }, torch.Tensor{ 0.229, 0.224, 0.225 } }
 	end
-	self.opt.seqLength = seqLength
-	meanEstimate:div( numBatch )
-	stdEstimate:div( numBatch )
-	return { mean = meanEstimate, std = stdEstimate }
 end
 function task:setModelSpecificOption(  )
 	self.opt.cropSize = 224
