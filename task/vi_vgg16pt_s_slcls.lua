@@ -267,9 +267,9 @@ function task:setNumQuery(  )
 end
 function task:estimateInputStat(  )
 	if self.opt.caffeInput then -- BGR, [0,255]
-		return { mean = torch.Tensor{ 0.406, 0.456, 0.485 } * 255, torch.Tensor{ 0.225, 0.224, 0.229 } * 255 }
+		return { mean = torch.Tensor{ 0.406, 0.456, 0.485 } * 255, std = torch.Tensor{ 0.225, 0.224, 0.229 } * 255 }
 	else -- RGB, [0,1]
-		return { mean = torch.Tensor{ 0.485, 0.456, 0.406 }, torch.Tensor{ 0.229, 0.224, 0.225 } }
+		return { mean = torch.Tensor{ 0.485, 0.456, 0.406 }, std = torch.Tensor{ 0.229, 0.224, 0.225 } }
 	end
 end
 function task:setModelSpecificOption(  )
