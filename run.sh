@@ -21,7 +21,7 @@ th main.lua -task vi_vgg16pt_d_slcls $ITERATION -stride 4 -diffLevel 4
 # Spatial+diff net.
 CUDA_VISIBLE_DEVICES=0,1,2,3
 ITERATION='-batchSize 384 -epochSize 199 -numEpoch 30'
-th main.lua -task vi_vggmpt_sdsel_slcls $ITERATION -stride 4 -branchAfter 1 -mergeAfter 4
+th main.lua -task vi_vggmpt_sdsel_slcls $ITERATION -stride 4 -branchAfter 1 -mergeAfter 5
 CUDA_VISIBLE_DEVICES=0,1,2,3
 ITERATION='-batchSize 192 -epochSize 398 -numEpoch 30'
 th main.lua -task vi_vgg16pt_sdsel_slcls $ITERATION -stride 4 -branchAfter 4 -mergeAfter 13
