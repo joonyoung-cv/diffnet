@@ -311,7 +311,7 @@ function task:defineModel(  )
 	assert( ( batchSize / numGpu ) % seqLength == 0 )
 	assert( ( self.opt.batchSize / seqLength / numGpu ) % 1 == 0 )
 	assert( dropout >= 0 and dropout <= 1 )
-	assert( diffLevel >= 0 and diffLevel <= 4 )
+	assert( diffLevel >= 0 and diffLevel <= 5 )
 	assert( diffScale < seqLength )
 	-- Make initial model.
 	local features = loadcaffe.load( proto, caffemodel, self.opt.backend )
@@ -334,9 +334,10 @@ function task:defineModel(  )
 	local diffInfo = {  }
 	diffInfo[ 0 ] = { id =  1, ch =   3, row = 224, col = 224 }
 	diffInfo[ 1 ] = { id =  3, ch =  96, row = 109, col = 109 }
-	diffInfo[ 2 ] = { id =  7, ch = 256, row =  26, col = 26 }
-	diffInfo[ 3 ] = { id = 11, ch = 512, row =  13, col = 13 }
-	diffInfo[ 4 ] = { id = 13, ch = 512, row =  13, col = 13 }
+	diffInfo[ 2 ] = { id =  7, ch = 256, row =  26, col =  26 }
+	diffInfo[ 3 ] = { id = 11, ch = 512, row =  13, col =  13 }
+	diffInfo[ 4 ] = { id = 13, ch = 512, row =  13, col =  13 }
+	diffInfo[ 5 ] = { id = 15, ch = 512, row =  13, col =  13 }
 	local convInfo = {  }
 	convInfo[ 0 ] = { id =  1, ch =   3, row = 7, col = 7, num =  96, stride = 2, pad = 0 }
 	convInfo[ 1 ] = { id =  5, ch =  96, row = 5, col = 5, num = 256, stride = 2, pad = 1 }
