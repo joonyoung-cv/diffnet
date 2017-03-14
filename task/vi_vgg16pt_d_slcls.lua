@@ -265,8 +265,8 @@ end
 function task:setNumBatch(  )
 	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
-	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 ) * seqLength / batchSize )
-	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 ) * seqLength / batchSize )
+	local numBatchTrain = math.ceil( self.dbtr.vid2path:size( 1 ) * seqLength / batchSize )
+	local numBatchVal = math.ceil( self.dbval.vid2path:size( 1 ) * seqLength / batchSize )
 	return numBatchTrain, numBatchVal
 end
 function task:setNumQuery(  )
@@ -473,6 +473,10 @@ end
 function task:getBatchVal( fidStart )
 	local batchSize = self.opt.batchSize
 	local seqLength = self.opt.seqLength
+	local numVideo = self.dbval.vid2path:size( 1 )
+	local numSurplus = numVideo % ( batchSize / seqLength )
+	local lastVideo = numVideo - numSurplus % self.opt.numGpu
+	batchSize = math.min( seqLength * lastVideo - fidStart + 1, batchSize )
 	local stride = self.opt.stride
 	local cropSize = self.opt.cropSize
 	local vidStart = ( fidStart - 1 ) / seqLength + 1
@@ -500,9 +504,7 @@ function task:getBatchVal( fidStart )
 end
 function task:evalBatch( output, label )
 	local seqLength = self.opt.seqLength
-	local batchSize = self.opt.batchSize
 	local numVideo = output:size( 1 )
-	assert( numVideo == batchSize / seqLength )
 	assert( numVideo == label:numel(  ) )
 	local _, rank2cid = output:float(  ):sort( 2, true )
 	local top1 = 0

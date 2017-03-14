@@ -258,8 +258,8 @@ function task:createDbVal(  )
 end
 function task:setNumBatch(  )
 	local batchSize = self.opt.batchSize
-	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 )  / batchSize )
-	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 )  / batchSize )
+	local numBatchTrain = math.ceil( self.dbtr.vid2path:size( 1 )  / batchSize )
+	local numBatchVal = math.ceil( self.dbval.vid2path:size( 1 )  / batchSize )
 	return numBatchTrain, numBatchVal
 end
 function task:setNumQuery(  )
@@ -375,11 +375,11 @@ function task:getBatchTrain(  )
 	return input, label
 end
 function task:getBatchVal( vidStart )
-	local batchSize = self.opt.batchSize
+	local lastVideo = self.dbval.vid2path:size( 1 )
+	local batchSize = math.min( lastVideo - vidStart + 1, self.opt.batchSize )
 	local cropSize = self.opt.cropSize
 	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
 	local label = torch.LongTensor( batchSize )
-	local fcnt = 0
 	for v = 1, batchSize do
 		local vid = vidStart + v - 1
 		local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
@@ -393,9 +393,8 @@ function task:getBatchVal( vidStart )
 	return input, label
 end
 function task:evalBatch( output, label )
-	local batchSize = self.opt.batchSize
+	local batchSize = label:numel(  )
 	assert( batchSize == output:size( 1 ) )
-	assert( batchSize == label:numel(  ) )
 	local _, rank2cid = output:float(  ):sort( 2, true )
 	local top1 = 0
 	for v = 1, batchSize do
