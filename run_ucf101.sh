@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3
 ITERATION='-batchSize 384 -epochSize 199 -numEpoch 30'
 th main.lua -task vi_vggmpt_d_slcls $ITERATION -stride 4 -diffLevel 1
 CUDA_VISIBLE_DEVICES=0,1,2,3
-ITERATION='-batchSize 256 -epochSize 299 -numEpoch 20'
+ITERATION='-batchSize 256 -epochSize 299 -numEpoch 30'
 th main.lua -task vi_vgg16pt_d_slcls $ITERATION -stride 4 -diffLevel 4
 
 # Spatial+diff net.
@@ -45,7 +45,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3
 ITERATION='-batchSize 384 -epochSize 199 -numEpoch 30'
 th main.lua -task vi_vggmpt_d_slcls $ITERATION -stride 4 -diffLevel 1 -data UCF101_RGB_S2
 CUDA_VISIBLE_DEVICES=0,1,2,3
-ITERATION='-batchSize 256 -epochSize 299 -numEpoch 20'
+ITERATION='-batchSize 256 -epochSize 299 -numEpoch 30'
 th main.lua -task vi_vgg16pt_d_slcls $ITERATION -stride 4 -diffLevel 4 -data UCF101_RGB_S2
 
 # Spatial+diff net.
@@ -74,7 +74,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3
 ITERATION='-batchSize 384 -epochSize 199 -numEpoch 30'
 th main.lua -task vi_vggmpt_d_slcls $ITERATION -stride 4 -diffLevel 1 -data UCF101_RGB_S3
 CUDA_VISIBLE_DEVICES=0,1,2,3
-ITERATION='-batchSize 256 -epochSize 299 -numEpoch 20'
+ITERATION='-batchSize 256 -epochSize 299 -numEpoch 30'
 th main.lua -task vi_vgg16pt_d_slcls $ITERATION -stride 4 -diffLevel 4 -data UCF101_RGB_S3
 
 # Spatial+diff net.
