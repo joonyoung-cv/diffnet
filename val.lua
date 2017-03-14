@@ -34,6 +34,7 @@ function val.val( epoch )
 	val.epoch = epoch
 	val.evalEpoch = torch.Tensor( val.numOut ):fill( 0 )
 	val.lossEpoch = 0
+	val.numEvalEpoch = 0
 	val.batchNumber = 0
 	-- Do the job.
 	val.print( string.format( 'Validation epoch %d.', epoch ) )
@@ -53,8 +54,8 @@ function val.val( epoch )
 	end
 	val.donkeys:synchronize(  )
 	cutorch.synchronize(  )
-	val.evalEpoch = val.evalEpoch / val.epochSize
-	val.lossEpoch = val.lossEpoch / val.epochSize
+	val.evalEpoch = val.evalEpoch / val.numEvalEpoch
+	val.lossEpoch = val.lossEpoch / val.numEvalEpoch
 	local evalEpochStr = val.tensor2str( val.evalEpoch, '%.4f' )
 	val.print( string.format( 'Epoch %d, time %.2fs, avg loss %.4f, eval %s', 
 		epoch, epochTimer:time(  ).real, val.lossEpoch, evalEpochStr ) )
@@ -67,6 +68,7 @@ function val.val( epoch )
 end
 function val.valBatch( inputsCpu, labelsCpu )
 	-- Initialization.
+	local numEval = labelsCpu:size( 1 )
 	local dataTime = val.dataTimer:time(  ).real
 	val.netTimer:reset(  )
 	val.inputs:resize( inputsCpu:size(  ) ):copy( inputsCpu )
@@ -77,10 +79,11 @@ function val.valBatch( inputsCpu, labelsCpu )
 	local err = val.criterion:forward( outputs, val.labels )
 	cutorch.synchronize(  )
 	val.batchNumber = val.batchNumber + 1
-	val.lossEpoch = val.lossEpoch + err
+	val.lossEpoch = val.lossEpoch + err * numEval
 	-- Task evaluation.
 	local eval = val.evalBatch( outputs, labelsCpu )
-	val.evalEpoch = val.evalEpoch + eval
+	val.evalEpoch = val.evalEpoch + eval * numEval
+	val.numEvalEpoch = val.numEvalEpoch + numEval
 	local evalStr = val.tensor2str( eval, '%.2f' )
 	local netTime = val.netTimer:time(  ).real
 	local totalTime = dataTime + netTime
