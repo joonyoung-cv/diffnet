@@ -14,4 +14,4 @@ gpath.net.vggm_caffe_model = '/mnt/ilcompf2d1/user/jolee/research/net/caffe/VGG_
 gpath.net.vggm_caffe_proto = '/mnt/ilcompf2d1/user/jolee/research/net/caffe/VGG_CNN_M_2048_deploy.prototxt'
 gpath.net.vgg16_caffe_model = '/mnt/ilcompf2d1/user/jolee/research/net/caffe/VGG_ILSVRC_16_layers.caffemodel'
 gpath.net.vgg16_caffe_proto = '/mnt/ilcompf2d1/user/jolee/research/net/caffe/VGG_ILSVRC_16_layers_deploy.prototxt'
-gpath.dataout = '/mnt/ilcompf2d1/user/jolee/research/diffnet_dataout/'
+gpath.dataout = '/mnt/ilcompf2d0/user/jolee/diffnet_dataout/'
