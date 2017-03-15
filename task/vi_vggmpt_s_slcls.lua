@@ -416,7 +416,7 @@ function task:getQuery( queryNumber )
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numChunk = math.min( lastFrame, self.opt.numChunk )
+	local numChunk = math.min( numFrame, self.opt.numChunk )
 	local chunks = torch.linspace( 1, numFrame, numChunk ):round(  )
 	local query = torch.Tensor( numChunk * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
