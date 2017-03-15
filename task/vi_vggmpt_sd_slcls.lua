@@ -184,16 +184,22 @@ function task:parseOption( arg )
 	cmd:option( '-backend', 'cudnn', 'cudnn or nn.' )
 	cmd:option( '-numDonkey', 16, 'Number of donkeys for data loading.' )
 	-- Data.
-	cmd:option( '-data', 'UCF101_OF_S1', 'Name of dataset defined in "./db/"' )
+	cmd:option( '-data', 'UCF101_RGB_S1', 'Name of dataset defined in "./db/"' )
+	cmd:option( '-stride', 2, 'Temporal stride over time.' )
 	cmd:option( '-imageSize', 256, 'Short side of initial resize.' )
 	-- Model.
-	cmd:option( '-numFlow', 10, 'Number of flow frames per chunk.' )
 	cmd:option( '-dropout', 0.7, 'Dropout ratio.' )
+	cmd:option( '-seqLength', 2, 'Number of frames per input video' )
+	cmd:option( '-branchAfter', 1, 'Conv layer after which a stream is branched.' )
+	cmd:option( '-mergeAfter', 4, 'Conv layer after which streams are merged.' )
+	cmd:option( '-diffScale', 1, 'Time scale for differentiation.' )
+	cmd:option( '-diffActive', 'none', 'Activation function for differentiator.' )
+	cmd:option( '-diffChance', 0.7, 'Probability to select differentiator path.' )
 	-- Train.
 	cmd:option( '-numEpoch', 50, 'Number of total epochs to run.' )
-	cmd:option( '-epochSize', 100, 'Number of batches per epoch.' )
-	cmd:option( '-batchSize', 960, 'Frame-level mini-batch size.' )
-	cmd:option( '-learnRate', '5e-3,5e-3', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
+	cmd:option( '-epochSize', 38, 'Number of batches per epoch.' )
+	cmd:option( '-batchSize', 512, 'Frame-level mini-batch size.' )
+	cmd:option( '-learnRate', '1e-3,1e-3', 'Supports multi-lr for multi-module like "lr1,lr2,lr3".' )
 	cmd:option( '-momentum', 0.9, 'Momentum.' )
 	cmd:option( '-weightDecay', 5e-4, 'Weight decay.' )
 	cmd:option( '-startFrom', '', 'Path to the initial model. Using it for LR decay is recommended.' )
@@ -205,6 +211,7 @@ function task:parseOption( arg )
 	local pathDbTrain = paths.concat( dirRoot, 'dbTrain.t7' )
 	local pathDbVal = paths.concat( dirRoot, 'dbVal.t7' )
 	local pathImStat = paths.concat( dirRoot, 'inputStat.t7' )
+	if opt.caffeInput == 1 then pathImStat = pathImStat:match( '(.+).t7$' ) .. 'Caffe.t7' end
 	local ignore = { numGpu=true, backend=true, numDonkey=true, data=true, numEpoch=true, startFrom=true, numChunk=true }
 	local dirModel = paths.concat( dirRoot, cmd:string( opt.task, opt, ignore ) )
 	if opt.startFrom ~= '' then
@@ -260,20 +267,20 @@ function task:createDbVal(  )
 	return dbval
 end
 function task:setNumBatch(  )
+	local seqLength = self.opt.seqLength
 	local batchSize = self.opt.batchSize
-	local numFlow = self.opt.numFlow
-	local numBatchTrain = math.floor( self.dbtr.vid2path:size( 1 ) * numFlow / batchSize )
-	local numBatchVal = math.floor( self.dbval.vid2path:size( 1 ) * numFlow / batchSize )
+	local numBatchTrain = math.ceil( self.dbtr.vid2path:size( 1 ) * seqLength / batchSize )
+	local numBatchVal = math.ceil( self.dbval.vid2path:size( 1 ) * seqLength / batchSize )
 	return numBatchTrain, numBatchVal
 end
 function task:setNumQuery(  )
 	return self.dbval.vid2path:size( 1 )
 end
 function task:estimateInputStat(  )
-	if self.opt.caffeInput then
-		return { mean = torch.Tensor{ 128, 128 }, std = torch.Tensor{ 0, 0 } }
-	else
-		return { mean = torch.Tensor{ 0.5, 0.5 }, std = torch.Tensor{ 0, 0 } }
+	if self.opt.caffeInput then -- BGR, [0,255]
+		return { mean = torch.Tensor{ 0.406, 0.456, 0.485 } * 255, std = torch.Tensor{ 0.225, 0.224, 0.229 } * 255 }
+	else -- RGB, [0,1]
+		return { mean = torch.Tensor{ 0.485, 0.456, 0.406 }, std = torch.Tensor{ 0.229, 0.224, 0.225 } }
 	end
 end
 function task:setModelSpecificOption(  )
@@ -282,46 +289,95 @@ function task:setModelSpecificOption(  )
 	self.opt.normalizeStd = false
 	self.opt.caffeInput = true
 	self.opt.numOut = 1
+	self.opt.featInfo = {  }
+	self.opt.featInfo[ 0 ] = { id = 0, ch = 3, row = 224, col = 224 }
+	self.opt.featInfo[ 1 ] = { id = 2, ch = 96, row = 109, col = 109 }
+	self.opt.featInfo[ 2 ] = { id = 6, ch = 256, row = 26, col = 26 }
+	self.opt.featInfo[ 3 ] = { id = 10, ch = 512, row = 13, col = 13 }
+	self.opt.featInfo[ 4 ] = { id = 12, ch = 512, row = 13, col = 13 }
+	self.opt.featInfo[ 5 ] = { id = 14, ch = 512, row = 13, col = 13 }
 end
 function task:defineModel(  )
 	require 'loadcaffe'
 	-- Get params.
 	local numGpu = self.opt.numGpu
-	local cropSize = self.opt.cropSize
-	local numFlow = self.opt.numFlow
+	local batchSize = self.opt.batchSize
+	local seqLength = self.opt.seqLength
 	local numClass = self.dbtr.cid2name:size( 1 )
 	local dropout = self.opt.dropout
-	local proto = gpath.net.vgg16_caffe_proto
-	local caffemodel = gpath.net.vgg16_caffe_model
+	local inputSize = self.opt.cropSize
+	local diffScale = self.opt.diffScale
+	local diffActive = self.opt.diffActive
+	local branchAfter = self.opt.branchAfter
+	local mergeAfter = self.opt.mergeAfter
+	local featInfo = self.opt.featInfo
+	local proto = gpath.net.vggm_caffe_proto
+	local caffemodel = gpath.net.vggm_caffe_model
+	local seqLength2 = seqLength - diffScale
+	local diffChance = self.opt.diffChance
 	-- Check options.
-	assert( cropSize == 224 )
+	assert( self.opt.cropSize == 224 )
 	assert( self.opt.keepAspect )
 	assert( not self.opt.normalizeStd )
 	assert( self.opt.caffeInput )
 	assert( self.opt.numOut == 1 )
-	assert( numFlow >= 1 )
+	assert( batchSize % numGpu == 0 )
+	assert( ( batchSize / numGpu ) % seqLength == 0 )
+	assert( ( self.opt.batchSize / seqLength / numGpu ) % 1 == 0 )
 	assert( dropout >= 0 and dropout <= 1 )
-	-- Create model.
-	self:print( 'Load pre-trained Caffe feature.' )
+	assert( branchAfter >= 0 and branchAfter <= 4 )
+	assert( mergeAfter > branchAfter )
+	assert( diffScale > 0 and diffScale < seqLength )
+	-- Temporal assertion before extension to longer sequences.
+	assert( seqLength == 2 and seqLength2 == 1 )
+	-- Make initial model.
 	local features = loadcaffe.load( proto, caffemodel, self.opt.backend )
-	features:remove( 40 ) -- removes softmax.
-	features:remove( 39 ) -- removes fc.
-	features:remove( 38 ) -- removes dropout.
-	features:remove( 35 ) -- removes dropout.
-	features:insert( nn.Dropout( dropout ), 35 )
+	features:remove( 24 ) -- removes softmax.
+	features:remove( 23 ) -- removes fc.
+	features:remove( 22 ) -- removes dropout.
+	features:remove( 19 ) -- removes dropout.
+	features:insert( nn.Dropout( dropout ), 19 )
 	features:add( nn.Dropout( dropout ) )
-	local conv1 = cudnn.SpatialConvolution( 2 * numFlow, 64, 3, 3, 1, 1, 1, 1, 1 ):cuda(  )
-	local srcw, srcg = features.modules[ 1 ]:parameters(  )
-	local dstw, dstg = conv1:parameters(  )
-	dstw[ 1 ]:copy( srcw[ 1 ]:mean( 2 ):repeatTensor( 1, 2 * numFlow, 1, 1 ):mul( 3 / ( 2 * numFlow ) ) )
-	dstw[ 2 ]:copy( srcw[ 2 ] )
-	dstg[ 1 ]:copy( srcg[ 1 ]:mean( 2 ):repeatTensor( 1, 2 * numFlow, 1, 1 ):mul( 3 / ( 2 * numFlow ) ) )
-	dstg[ 2 ]:copy( srcg[ 2 ] )
-	features:remove( 1 )
-	features:insert( conv1, 1 )
 	features:cuda(  )
+	-- Extract target layer pointers to be parallelized.
+	local ls = featInfo[ branchAfter ].id + 1
+	local le = featInfo[ mergeAfter ].id
+	local featPar = {  }
+	for l = 1, #features.modules do
+		local module = features.modules[ l ]
+		if l >= ls and l <= le then featPar[ #featPar + 1 ] = module end
+	end
+	-- Create and parallelize the spatio-temporal streams.
+	local ich = featInfo[ branchAfter ].ch
+	local irow = featInfo[ branchAfter ].row
+	local icol = featInfo[ branchAfter ].col
+	local spatial = nn.Sequential(  )
+	spatial:add( nn.Narrow( 2, 1, 1 ) )
+	spatial:add( nn.View( -1, ich, irow, icol ) )
+	for k, v in pairs( featPar ) do spatial:add( v:clone(  ) ) end
+	spatial:add( nn.MulConstant( 1 - diffChance ) )
+	spatial:cuda(  )
+	local temporal = nn.Sequential(  )
+	local currf = nn.Narrow( 2, 1, seqLength2 )
+	local nextf = nn.Narrow( 2, 1 + diffScale, seqLength2 )
+	temporal:add( nn.ConcatTable(  ):add( nextf ):add( currf ) )
+	temporal:add( nn.CSubTable(  ) )
+	if diffActive == 'abs' then temporal:add( nn.Abs(  ) ) end
+	temporal:add( nn.View( -1, ich, irow, icol ) )
+	for k, v in pairs( featPar ) do temporal:add( v:clone(  ) ) end
+	temporal:add( nn.MulConstant( diffChance ) )
+	temporal:cuda(  )
+	local spatiotemp = nn.Sequential(  )
+	spatiotemp:add( nn.View( -1, seqLength, ich * irow * icol ) )
+	spatiotemp:add( nn.ConcatTable(  ):add( spatial ):add( temporal ) )
+	spatiotemp:add( nn.CAddTable(  ) )
+	spatiotemp:cuda(  )
+	-- Remove and insert.
+	for l = le, ls, -1 do features:remove( l ) end
+	features:insert( spatiotemp, ls )
+	-- Add classifier.
 	local classifier = nn.Sequential(  )
-	classifier:add( nn.Linear( 4096, numClass ) )
+	classifier:add( nn.Linear( 2048, numClass ) )
 	classifier:add( nn.LogSoftMax(  ) )
 	classifier:cuda(  )
 	local model = nn.Sequential(  )
@@ -367,62 +423,73 @@ function task:changeModelVal( model )
 	-- Nothing to change.
 end
 function task:changeModelTest( model )
-	-- Nothing to change.
+	self:changeModelVal( model )
 end
 function task:getBatchTrain(  )
 	local batchSize = self.opt.batchSize
+	local seqLength = self.opt.seqLength
+	local stride = self.opt.stride
 	local cropSize = self.opt.cropSize
-	local numFlow = self.opt.numFlow
-	local input = torch.Tensor( batchSize / numFlow, 2 * numFlow, cropSize, cropSize )
-	local label = torch.LongTensor( batchSize / numFlow )
+	local numVideoToSample = batchSize / seqLength
+	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
 	local numVideo = self.dbtr.vid2path:size( 1 )
-	for v = 1, batchSize / numFlow do
+	local diffScale = self.opt.diffScale
+	local label = torch.LongTensor( numVideoToSample )
+	local fcnt = 0
+	for v = 1, numVideoToSample do
 		local vid = torch.random( 1, numVideo )
 		local vpath = ffi.string( torch.data( self.dbtr.vid2path[ vid ] ) )
 		local numFrame = self.dbtr.vid2numim[ vid ]
 		local cid = self.dbtr.vid2cid[ vid ]
-		local startFrame = torch.random( 1, math.max( 1, numFrame - numFlow + 1 ) )
+		local startFrame = torch.random( 1, math.max( 1, numFrame - stride * ( seqLength - 1 ) ) )
 		local rw = torch.uniform(  )
 		local rh = torch.uniform(  )
 		local rf = torch.uniform(  )
-		for f = 1, numFlow do
-			local fid = math.min( numFrame, startFrame + f - 1 )
+		for f = 1, seqLength do
+			local fid = math.min( numFrame, startFrame + stride * ( f - 1 ) )
 			local fpath = paths.concat( vpath, string.format( self.dbtr.frameFormat, fid ) )
-			local im = self:processImageTrain( fpath, rw, rh, rf )
-			local ci = 2 * ( f - 1 ) + 1
-			input[ v ][ { { ci, ci + 1 }, {  }, {  } } ]:copy( im )
+			fcnt = fcnt + 1
+			input[ fcnt ]:copy( self:processImageTrain( fpath, rw, rh, rf ) )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % seqLength == 0 )
 	return input, label
 end
 function task:getBatchVal( fidStart )
 	local batchSize = self.opt.batchSize
+	local seqLength = self.opt.seqLength
+	local numVideo = self.dbval.vid2path:size( 1 )
+	local numSurplus = numVideo % ( batchSize / seqLength )
+	local lastVideo = numVideo - numSurplus % self.opt.numGpu
+	batchSize = math.min( seqLength * lastVideo - fidStart + 1, batchSize )
+	local stride = self.opt.stride
 	local cropSize = self.opt.cropSize
-	local numFlow = self.opt.numFlow
-	local vidStart = ( fidStart - 1 ) / numFlow + 1
-	local input = torch.Tensor( batchSize / numFlow, 2 * numFlow, cropSize, cropSize )
-	local label = torch.LongTensor( batchSize / numFlow )
-	for v = 1, batchSize / numFlow do
+	local vidStart = ( fidStart - 1 ) / seqLength + 1
+	local numVideoToSample = batchSize / seqLength
+	local input = torch.Tensor( batchSize, 3, cropSize, cropSize )
+	local diffScale = self.opt.diffScale
+	local label = torch.LongTensor( numVideoToSample )
+	local fcnt = 0
+	for v = 1, numVideoToSample do
 		local vid = vidStart + v - 1
 		local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 		local numFrame = self.dbval.vid2numim[ vid ]
 		local cid = self.dbval.vid2cid[ vid ]
-		local startFrame = math.floor( math.max( 0, numFrame - numFlow ) / 2 ) + 1
-		for f = 1, numFlow do
-			local fid = math.min( numFrame, startFrame + f - 1 )
+		local startFrame = math.floor( math.max( 0, numFrame - stride * ( seqLength - 1 ) - 1 ) / 2 ) + 1
+		for f = 1, seqLength do
+			local fid = math.min( numFrame, startFrame + stride * ( f - 1 ) )
 			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
-			local im = self:processImageVal( fpath )
-			local ci = 2 * ( f - 1 ) + 1
-			input[ v ][ { { ci, ci + 1 }, {  }, {  } } ]:copy( im )
+			fcnt = fcnt + 1
+			input[ fcnt ]:copy( self:processImageVal( fpath ) )
 		end
 		label[ v ] = cid
 	end
+	assert( ( batchSize / self.opt.numGpu ) % seqLength == 0 )
 	return input, label
 end
 function task:evalBatch( output, label )
-	local numVideo = self.opt.batchSize / self.opt.numFlow
-	assert( numVideo == output:size( 1 ) )
+	local numVideo = output:size( 1 )
 	assert( numVideo == label:numel(  ) )
 	local _, rank2cid = output:float(  ):sort( 2, true )
 	local top1 = 0
@@ -443,17 +510,16 @@ function task:getQuery( queryNumber )
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numFlow = self.opt.numFlow
-	local lastFrame = math.max( 1, numFrame - numFlow + 1 )
+	local strideFrame = self.opt.stride
+	local seqLength = self.opt.seqLength
+	local lastFrame = math.max( 1, numFrame - strideFrame * ( seqLength - 1 ) )
 	local numChunk = math.min( lastFrame, self.opt.numChunk )
 	local chunks = torch.linspace( 1, lastFrame, numChunk ):round(  )
-	local query = torch.Tensor( numChunk * numAugment, 2 * numFlow, cropSize, cropSize )
-	local maxval = 1
-	if self.opt.caffeInput then maxval = 255 end
+	local query = torch.Tensor( seqLength * numChunk * numAugment, 3, cropSize, cropSize )
 	for c = 1, numChunk do
 		local startFrame = chunks[ c ]
-		for f = 1, numFlow do
-			local fid = math.min( numFrame, startFrame + f - 1 )
+		for f = 1, seqLength do
+			local fid = math.min( numFrame, startFrame + strideFrame * ( f - 1 ) )
 			local fpath = paths.concat( vpath, string.format( self.dbval.frameFormat, fid ) )
 			local im0 = self:normalizeImage( self:loadImage( fpath ) )
 			local w0, h0 = im0:size( 3 ), im0:size( 2 )
@@ -466,16 +532,14 @@ function task:getQuery( queryNumber )
 				local dw = math.ceil( ( w0 - w ) * rw )
 				local im = image.crop( im0, dw, dh, dw + w, dh + h )
 				assert( im:size( 3 ) == w and im:size( 2 ) == h )
-				if rf > 0.5 then
-					im = image.hflip( im )
-					im[ 1 ]:mul( -1 ):add( maxval )
-				end
-				local q = numAugment * ( c - 1 ) + a
-				local ci = 2 * ( f - 1 ) + 1
-				query[ q ][ { { ci, ci + 1 }, {  }, {  } } ]:copy( im )
+				if rf > 0.5 then im = image.hflip( im ) end
+				local q = ( c - 1 ) * seqLength * numAugment + seqLength * ( a - 1 ) + f
+				query[ q ]:copy( im )
 			end
 		end
 	end
+	assert( ( self.opt.batchSize / self.opt.numGpu ) % seqLength == 0 )
+	assert( query:size( 1 ) % self.opt.batchSize % ( self.opt.numGpu * seqLength ) == 0 )
 	return query
 end
 function task:aggregateAnswers( answers )
@@ -551,12 +615,7 @@ function task:processImageTrain( path, rw, rh, rf )
 	assert( out:size( 3 ) == oW )
 	assert( out:size( 2 ) == oH )
 	-- Do horz-flip.
-	if rf > 0.5 then
-		out = image.hflip( out )
-		local maxval = 1
-		if self.opt.caffeInput then maxval = 255 end
-		out[ 1 ]:mul( -1 ):add( maxval )
-	end
+	if rf > 0.5 then out = image.hflip( out ) end
 	-- Normalize.
 	out = self:normalizeImage( out )
 	return out
@@ -597,18 +656,16 @@ function task:resizeImage( im )
 	return image.scale( im, w, h )
 end
 function task:loadImage( path )
-	local imu = image.load( path, 1, 'float' )
-	local pathv = path:gsub( '/u/', '/v/' )
-	local imv = image.load( pathv, 1, 'float' )
-	local im = torch.cat( imu, imv, 1 )
+	local im = image.load( path, 3, 'float' )
 	im = self:resizeImage( im )
 	if self.opt.caffeInput then
 		im:mul( 255 )
+		im = im:index( 1, torch.LongTensor{ 3, 2, 1 } )
 	end
 	return im
 end
 function task:normalizeImage( im )
-	for i = 1, 2 do
+	for i = 1, 3 do
 		if self.inputStat.mean then im[ i ]:add( -self.inputStat.mean[ i ] ) end
 		if self.inputStat.std and self.opt.normalizeStd then im[ i ]:div( self.inputStat.std[ i ] ) end
 	end

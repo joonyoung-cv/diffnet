@@ -36,6 +36,7 @@ function task:setOption( arg )
 	assert( self.opt.pathTrainLog )
 	assert( self.opt.pathValLog )
 	assert( self.opt.pathTestLog )
+	assert( self.opt.pathTestOutput )
 	paths.mkdir( self.opt.dirRoot )
 	paths.mkdir( self.opt.dirModel )
 	print( self.opt )
@@ -219,6 +220,7 @@ function task:parseOption( arg )
 	opt.pathTrainLog = paths.concat( opt.dirModel, 'train.log' )
 	opt.pathValLog = paths.concat( opt.dirModel, 'val.log' )
 	opt.pathTestLog = paths.concat( opt.dirModel, 'test_nc%d_%d.log' )
+	opt.pathTestOutput = paths.concat( opt.dirModel, 'test_nc%d_%d.t7' )
 	-- Value processing.
 	opt.learnRate = opt.learnRate:split( ',' )
 	for k,v in pairs( opt.learnRate ) do opt.learnRate[ k ] = tonumber( v ) end
@@ -414,7 +416,7 @@ function task:getQuery( queryNumber )
 	local vid = queryNumber
 	local vpath = ffi.string( torch.data( self.dbval.vid2path[ vid ] ) )
 	local numFrame = self.dbval.vid2numim[ vid ]
-	local numChunk = math.min( lastFrame, self.opt.numChunk )
+	local numChunk = math.min( numFrame, self.opt.numChunk )
 	local chunks = torch.linspace( 1, numFrame, numChunk ):round(  )
 	local query = torch.Tensor( numChunk * numAugment, 3, cropSize, cropSize )
 	local fcnt = 0
@@ -455,6 +457,7 @@ function task:evaluate( answers, qids )
 	assert( self.dbval.vid2path:size( 1 ) == numQuery )
 	for k, v in pairs( answers ) do
 		local pathTestLog = self.opt.pathTestLog:format( self.opt.numChunk, k )
+		local pathTestOutput = self.opt.pathTestOutput:format( self.opt.numChunk, k )
 		local testLogger = io.open( pathTestLog, 'w' )
 		testLogger:write( 'QUERY-LEVEL EVALUATION\n' )
 		print( 'QUERY-LEVEL EVALUATION' )
@@ -462,6 +465,7 @@ function task:evaluate( answers, qids )
 		local cid2num = torch.Tensor( numClass ):fill( 0 )
 		local cid2top1 = torch.Tensor( numClass ):fill( 0 )
 		local _, pcids = v:float(  ):sort( 2, true )
+		torch.save( pathTestOutput, v:float(  ) )
 		for q = 1, numQuery do
 			local qid = qids[ q ]
 			local pcid = pcids[ q ][ 1 ]
