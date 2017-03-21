@@ -1,4 +1,7 @@
 gpath = { db = {  }, net = {  } }
+gpath.db.ucf16k_rgb_s1 = '/mnt/ssd/tmp/jolee/16k/'
+gpath.db.ucf16k_rgb_s2 = '/mnt/ssd/tmp/jolee/16k/'
+gpath.db.ucf16k_rgb_s3 = '/mnt/ssd/tmp/jolee/16k/'
 gpath.db.ucf101_rgb_s1 = '/mnt/ssd/tmp/jolee/ch/'
 gpath.db.ucf101_of_s1 = '/mnt/ssd/tmp/jolee/ch/'
 gpath.db.ucf101_rgb_s2 = '/mnt/ssd/tmp/jolee/ch/'
